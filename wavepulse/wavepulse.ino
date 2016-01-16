@@ -19,20 +19,10 @@ https://github.com/WorldFamousElectronics/PulseSensor_Amped_Arduino/blob/master/
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(7, PIN, NEO_GRB + NEO_KHZ800);
 
-//  Variables
 int pulsePin = 10;                 // Pulse Sensor purple wire connected to analog pin 0
 int blinkPin = 7;                // pin to blink led at each beat
 int fadePin = 9;                  // pin to do fancy classy fading blink at each beat
 int fadeRate = 0;                 // used to fade LED on with PWM on fadePin
-
-float current_brightness = 0.7;
-float min_brightness = 0.05;
-float max_brightness = 0.7;
-int wheel_pos = 160;
-int num_pixels = 7;
-int wave_pos = num_pixels;
-float wave_counter = 0;
-int wave_move_each = 200; //how many milliseconds between wave steps
 
 
 // Volatile Variables, used in the interrupt service routine!
@@ -43,69 +33,74 @@ volatile boolean Pulse = false;     // "True" when User's live heartbeat is dete
 volatile boolean QS = false;        // becomes true when Arduoino finds a beat.
 
 // Regards Serial OutPut  -- Set This Up to your needs
-static boolean serialVisual = true;   // Set to 'false' by Default.  Re-set to 'true' to see Arduino Serial Monitor ASCII Visual Pulse
+static boolean serialVisual = false;   // Set to 'false' by Default.  Re-set to 'true' to see Arduino Serial Monitor ASCII Visual Pulse
 
+int num_pixels = 7;
+
+float brightness_max = 0.95;
+float brightness_min = 0.05;
+
+float brightness_variance = brightness_max - brightness_min;
+float brightness_gap_per_pixel = brightness_variance / num_pixels;
+
+int wheel_pos = 150;
+
+int refresh_rate_ms = 20;
+int impulse_duration_ms = 2000;
+
+int impulse_duration_per_pixel_ms = impulse_duration_ms / (num_pixels * 2);
+
+int time_elapsed_ms = 0;
+int time_since_heartbeat_ms = 0;
 
 void setup() {
+
+  Serial.begin(9600);
 
   strip.begin();
   strip.show();
 
-  pinMode(blinkPin, OUTPUT);        // pin that will blink to your heartbeat!
-  Serial.begin(115200);             // we agree to talk fast!
-  interruptSetup();                 // sets up to read Pulse Sensor signal every 2mS
-  // UN-COMMENT THE NEXT LINE IF YOU ARE POWERING The Pulse Sensor AT LOW VOLTAGE,
-  // AND APPLY THAT VOLTAGE TO THE A-REF PIN
-  //   analogReference(EXTERNAL);
+  pinMode(blinkPin, OUTPUT);
+  interruptSetup();
 }
 
-
-//  Where the Magic Happens
-void loop() {
-
-  serialOutput();
-
-
-  if (QS == true) {    //  A Heartbeat Was Found
-    // BPM and IBI have been Determined
-    // Quantified Self "QS" true when arduino finds a heartbeat
-    wheel_pos += 5;
-    if (wheel_pos > 255) {
-      wheel_pos -= 255;
-    }
-
-    wave_pos = 0;
-
-    // current_brightness = 0.7;
-    // strip.show();
-    // digitalWrite(blinkPin, HIGH);    // Blink LED, we got a beat.
-
-    serialOutputWhenBeatHappens();   // A Beat Happened, Output that to serial.
-    QS = false;                      // reset the Quantified Self flag for next time
-  }
-  else {
-    if(wave_pos <= num_pixels && (wave_counter >= wave_move_each)) {
-      wave_counter = 0;
-      
-      for (int i = 0; i <= num_pixels; i++) {
-        strip.setPixelColor(i,  Wheel(wheel_pos, min_brightness));
-      }
-
-      if(wave_pos < num_pixels) {
-        strip.setPixelColor(wave_pos,  Wheel(wheel_pos, max_brightness));
-      } else {
-        strip.setPixelColor(wave_pos, Wheel(wheel_pos, min_brightness));
-      }
-      strip.show();
-
-      wave_pos++;
-    }
-    // fadeBrightness(0.01);
-    // digitalWrite(blinkPin, LOW);           // There is not beat, turn off pin 13 LED
-  }
-  delay(20);                             //  take a break
-  wave_counter += 20;
+void heartbeat() {
+  time_since_heartbeat_ms = 0;
 }
+
+void redraw() {
+  int this_color;
+  int this_pixel_offset_ms;
+  
+  float this_brightness;
+  int pixel_phase;
+
+  for(int i = 0; i < num_pixels; i++) {
+    this_pixel_offset_ms = i * impulse_duration_per_pixel_ms;
+ 
+    pixel_phase = ((time_since_heartbeat_ms - this_pixel_offset_ms) / impulse_duration_per_pixel_ms);
+
+    this_brightness = brightness_max - (pixel_phase * brightness_gap_per_pixel);
+    if(this_brightness < 0) {
+      this_brightness = 0;
+    }
+    if(pixel_phase < 0) {
+      this_brightness = 0;
+    }
+
+    // n * 2 phases
+
+    // phase 0 = off
+    // phase 1 = max bright
+    // phase n = min bright
+    // phase n+1 ... n * 2 = off
+
+    strip.setPixelColor(i, Wheel(wheel_pos, this_brightness));
+  }
+
+  strip.show();  
+}
+
 
 
 uint32_t Wheel(byte WheelPos, float brightness) {
@@ -125,8 +120,21 @@ uint32_t Wheel(byte WheelPos, float brightness) {
 
 
 
+//  Where the Magic Happens
+void loop() {
 
+//  serialOutput();
 
+  if (QS == true) {
+    heartbeat();
+    QS = false;
+  }
 
+  redraw();
+
+  delay(refresh_rate_ms);
+  time_elapsed_ms += refresh_rate_ms;
+  time_since_heartbeat_ms += refresh_rate_ms;
+}
 
 
