@@ -88,14 +88,10 @@ void redraw() {
       this_brightness = 0;
     }
 
-    // n * 2 phases
+    float time_frac = (float)time_elapsed_ms / 5000;
+    this_color = 255 * time_frac;
 
-    // phase 0 = off
-    // phase 1 = max bright
-    // phase n = min bright
-    // phase n+1 ... n * 2 = off
-
-    strip.setPixelColor(i, Wheel(wheel_pos, this_brightness));
+    strip.setPixelColor(i, Wheel(this_color, this_brightness));
   }
 
   strip.show();  
