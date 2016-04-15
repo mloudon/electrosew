@@ -13,29 +13,13 @@
   #define PIN 6
 #endif
 
+// 
 #define STRAND_LENGTH 17
 
-#define BRIGHTNESS 31
-
-const uint8_t PROGMEM gamma[] = {
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
-    0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  1,  1,  1,  1,
-    1,  1,  1,  1,  1,  1,  1,  1,  1,  2,  2,  2,  2,  2,  2,  2,
-    2,  3,  3,  3,  3,  3,  3,  3,  4,  4,  4,  4,  4,  5,  5,  5,
-    5,  6,  6,  6,  6,  7,  7,  7,  7,  8,  8,  8,  9,  9,  9, 10,
-   10, 10, 11, 11, 11, 12, 12, 13, 13, 13, 14, 14, 15, 15, 16, 16,
-   17, 17, 18, 18, 19, 19, 20, 20, 21, 21, 22, 22, 23, 24, 24, 25,
-   25, 26, 27, 27, 28, 29, 29, 30, 31, 32, 32, 33, 34, 35, 35, 36,
-   37, 38, 39, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 50,
-   51, 52, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 66, 67, 68,
-   69, 70, 72, 73, 74, 75, 77, 78, 79, 81, 82, 83, 85, 86, 87, 89,
-   90, 92, 93, 95, 96, 98, 99,101,102,104,105,107,109,110,112,114,
-  115,117,119,120,122,124,126,127,129,131,133,135,137,138,140,142,
-  144,146,148,150,152,154,156,158,160,162,164,167,169,171,173,175,
-  177,180,182,184,186,189,191,193,196,198,200,203,205,208,210,213,
-  215,218,220,223,225,228,231,233,236,239,241,244,247,249,252,255 };
+#define BRIGHTNESS 63
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRAND_LENGTH, PIN, NEO_GRB + NEO_KHZ800);
+bool red;
 
 void setup() {
   // This is for Trinket 5V 16MHz, you can remove these three lines if you are not using a Trinket
@@ -46,12 +30,59 @@ void setup() {
 
   strip.setBrightness(BRIGHTNESS);
 
+  red = true;
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
 }
 
 void loop() {
-  rainbowCycle(20);
+  //rainbowCycle(20);
+  mainCycle();
+}
+
+void mainCycle(){
+  uint16_t i;
+  int t = millis();
+  byte l = getClock(t, 6);
+  byte x = getClock(t, 6);
+  
+  for (int i = 0; i < strip.numPixels(); i++){
+    // location of the pixel on a 0-255 scale
+    float dist = i * 256. / strip.numPixels();
+    byte delta = abs(dist - x);
+    // linear ramp up of brightness, for those within 1/8th of the reference point
+    strip.setPixelColor(i, Grey(max(255 - 8 * delta,0)));
+  }
+
+  blinkPerFrame();
+  
+  strip.show();
+  delay(20); // to give max 50fps
+}
+
+//Blinks the first pixel on and off. Used to check for framerate smoothness.
+void blinkPerFrame()
+{
+    if (red)
+      strip.setPixelColor(0, 127, 0, 0);
+    else
+      strip.setPixelColor(0, 0, 0, 0);
+    red = !red;
+}
+
+// Get a byte that cycles from 0-255, at a specified rate
+// typically, assign mil using mills();
+// rates, approximately (assuming 256ms in a second :P)
+// 8: 4hz
+// 7: 2hz
+// 6: 1hz
+// 5: 1/2hz
+// 4: 1/4hz
+// 3: 1/8hz
+// 2: 1/16hz
+byte getClock(unsigned long mil, byte rate)
+{
+  return mil >> (8 - rate) % 256; 
 }
 
 // Slightly different, this makes the rainbow equally distributed throughout
@@ -67,8 +98,14 @@ void rainbowCycle(uint8_t wait) {
   }
 }
 
+uint32_t Grey(byte lum)
+{
+  return strip.Color(lum, lum, lum);
+}
+
 // Input a value 0 to 255 to get a color value.
 // The colours are a transition r - g - b - back to r.
+// Max saturation (?)
 uint32_t Wheel(byte WheelPos) {
   WheelPos = 255 - WheelPos;
   if(WheelPos < 85) {
