@@ -43,19 +43,19 @@ void loop() {
 void mainCycle(){
   uint16_t i;
   int t = millis();
-  byte c = getClock(t, 6);
+  byte c = getClock(t, 4);
   byte x = getClock(t, 6);
   
   for (int i = 0; i < strip.numPixels(); i++){
     // location of the pixel on a 0-255 scale
     float dist = i * 256. / strip.numPixels();
-    byte delta = abs(dist - x);
+    byte delta = (dist - x);
     // linear ramp up of brightness, for those within 1/8th of the reference point
-    float bright = max(255 - 4 * delta,0) / 255.;
-    strip.setPixelColor(i, Wheel(c,bright));
+    float bright = max(255 - 6 * delta,0) / 255.;
+    strip.setPixelColor(i, hsvToRgb(c/255., 1., bright));
   }
 
-  blinkPerFrame();
+  //blinkPerFrame();
   
   strip.show();
   delay(20); // to give max 50fps
@@ -86,49 +86,73 @@ byte getClock(unsigned long mil, byte rate)
   return mil >> (8 - rate) % 256; 
 }
 
-// Slightly different, this makes the rainbow equally distributed throughout
-void rainbowCycle(uint8_t wait) {
-  uint16_t i, j;
+// From https://github.com/ratkins/RGBConverter
 
-  for(j=0; j<256*5; j++) { // 5 cycles of all colors on wheel
-    for(i=0; i< strip.numPixels(); i++) {
-      strip.setPixelColor(i, Wheel(((i * 256 / strip.numPixels()) + j) & 255));
+/**
+ * Converts an HSV color value to RGB. Conversion formula
+ * adapted from http://en.wikipedia.org/wiki/HSV_color_space.
+ * Assumes h, s, and v are contained in the set [0, 1] and
+ * returns r, g, and b in the set [0, 255].
+ *
+ * @param   Number  h       The hue
+ * @param   Number  s       The saturation
+ * @param   Number  v       The value
+ */
+uint32_t hsvToRgb(float h, float s, float v) {
+    float r, g, b;
+
+    int i = int(h * 6);
+    float f = h * 6 - i;
+    float p = v * (1 - s);
+    float q = v * (1 - f * s);
+    float t = v * (1 - (1 - f) * s);
+
+    switch(i % 6){
+        case 0: r = v, g = t, b = p; break;
+        case 1: r = q, g = v, b = p; break;
+        case 2: r = p, g = v, b = t; break;
+        case 3: r = p, g = q, b = v; break;
+        case 4: r = t, g = p, b = v; break;
+        case 5: r = v, g = p, b = q; break;
     }
-    strip.show();
-    delay(wait);
-  }
+
+    return strip.Color(r * 255, g * 255, b * 255);
 }
 
-uint32_t Grey(byte lum)
-{
-  return strip.Color(lum, lum, lum);
+/**
+ * Converts an HSL color value to RGB. Conversion formula
+ * adapted from http://en.wikipedia.org/wiki/HSL_color_space.
+ * Assumes h, s, and l are contained in the set [0, 1] and
+ * returns r, g, and b in the set [0, 255].
+ *
+ * @param   Number  h       The hue
+ * @param   Number  s       The saturation
+ * @param   Number  l       The lightness
+ * @return  Array           The RGB representation
+ */
+void hslToRgb(float h, float s, float l, byte rgb[]) {
+    float r, g, b;
+
+    if (s == 0) {
+        r = g = b = l; // achromatic
+    } else {
+        float q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        float p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1/3.);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1/3.);
+    }
+
+    rgb[0] = r * 255;
+    rgb[1] = g * 255;
+    rgb[2] = b * 255;
 }
 
-// Input a value 0 to 255 to get a color value.
-// The colours are a transition r - g - b - back to r.
-// Max saturation (?)
-uint32_t Wheel(byte WheelPos) {
-  WheelPos = 255 - WheelPos;
-  if(WheelPos < 85) {
-    return strip.Color(255 - WheelPos * 3, 0, WheelPos * 3);
-  }
-  if(WheelPos < 170) {
-    WheelPos -= 85;
-    return strip.Color(0, WheelPos * 3, 255 - WheelPos * 3);
-  }
-  WheelPos -= 170;
-  return strip.Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-}
-
-uint32_t Wheel(byte WheelPos, float brightness) {
-  WheelPos = 255 - WheelPos;
-  if (WheelPos < 85) {
-    return strip.Color((255 - WheelPos * 3) * brightness, 0, WheelPos * 3 * brightness);
-  }
-  if (WheelPos < 170) {
-    WheelPos -= 85;
-    return strip.Color(0, WheelPos * 3 * brightness, (255 - WheelPos * 3) * brightness);
-  }
-  WheelPos -= 170;
-  return strip.Color(WheelPos * 3 * brightness, (255 - WheelPos * 3) * brightness, 0);
+float hue2rgb(float p, float q, float t) {
+    if(t < 0) t += 1;
+    if(t > 1) t -= 1;
+    if(t < 1/6) return p + (q - p) * 6 * t;
+    if(t < 1/2) return q;
+    if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
 }
