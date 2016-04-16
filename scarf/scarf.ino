@@ -19,7 +19,6 @@
 #define BRIGHTNESS 63
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRAND_LENGTH, PIN, NEO_GRB + NEO_KHZ800);
-bool red;
 
 void setup() {
   // This is for Trinket 5V 16MHz, you can remove these three lines if you are not using a Trinket
@@ -30,7 +29,6 @@ void setup() {
 
   strip.setBrightness(BRIGHTNESS);
 
-  red = true;
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
 }
@@ -43,15 +41,15 @@ void loop() {
 void mainCycle(){
   uint16_t i;
   int t = millis();
-  byte c = getClock(t, 4);
-  byte x = getClock(t, 6);
+  byte c = getClock(t, 2);
+  byte x = getClock(t, 4);
   
   for (int i = 0; i < strip.numPixels(); i++){
     // location of the pixel on a 0-255 scale
     float dist = i * 256. / strip.numPixels();
-    byte delta = (dist - x);
+    byte delta = min(min(abs(dist - x), abs(dist - x + 256)), abs(dist - x - 255));
     // linear ramp up of brightness, for those within 1/8th of the reference point
-    float bright = max(255 - 6 * delta,0) / 255.;
+    float bright = max(255 - 6 * delta, 31) / 255.;
     strip.setPixelColor(i, hsvToRgb(c/255., 1., bright));
   }
 
@@ -62,6 +60,9 @@ void mainCycle(){
 }
 
 //Blinks the first pixel on and off. Used to check for framerate smoothness.
+
+bool red;
+
 void blinkPerFrame()
 {
     if (red)
@@ -86,7 +87,9 @@ byte getClock(unsigned long mil, byte rate)
   return mil >> (8 - rate) % 256; 
 }
 
-// From https://github.com/ratkins/RGBConverter
+/** 
+ *  HSV/HSL to RGB code From https://github.com/ratkins/RGBConverter
+ */
 
 /**
  * Converts an HSV color value to RGB. Conversion formula
@@ -130,7 +133,7 @@ uint32_t hsvToRgb(float h, float s, float v) {
  * @param   Number  l       The lightness
  * @return  Array           The RGB representation
  */
-void hslToRgb(float h, float s, float l, byte rgb[]) {
+uint32_t hslToRgb(float h, float s, float l) {
     float r, g, b;
 
     if (s == 0) {
@@ -143,9 +146,7 @@ void hslToRgb(float h, float s, float l, byte rgb[]) {
         b = hue2rgb(p, q, h - 1/3.);
     }
 
-    rgb[0] = r * 255;
-    rgb[1] = g * 255;
-    rgb[2] = b * 255;
+    return strip.Color(r * 255, g * 255, b * 255);
 }
 
 float hue2rgb(float p, float q, float t) {
