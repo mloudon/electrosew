@@ -32,15 +32,26 @@
 #define STRAND_LENGTH 17
 #define BRIGHTNESS 255
 
+/**
+ * Whether the pattern is mirrored
+ */
+//#define MIRRORED
+
+#if defined (MIRRORED)
+  #define ARM_LENGTH (STRAND_LENGTH /2)
+#else
+  #define ARM_LENGTH STRAND_LENGTH
+#endif
+
 /** 
  *  Pattern definition
  */
 
-//#define RAINBOW
+#define RAINBOW
 //#define SEAPUNK
 //#define INDIGO
 //#define BLUE_GREEN
-#define HEART
+//#define HEART
 
 #if defined (RAINBOW)
   #define HUE_START 0
@@ -81,26 +92,20 @@ void setup() {
   #endif
   // End of trinket special code
 
-  //strip.setBrightness(BRIGHTNESS);
+  strip.setBrightness(BRIGHTNESS);
 
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
 }
 
-void loop() {
-  //rainbowCycle(20);
-  mainCycle();
-}
-
-void mainCycle(){
-  byte stripLength = strip.numPixels();
+void loop(){
   unsigned long t = millis();
   byte c = getClock(t, 3);
   byte pulse = getClock(t, 5);
   
-  for (byte pix = 0; pix < strip.numPixels(); pix++){
+  for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-255 scale
-    float dist = pix * 255. / strip.numPixels();
+    float dist = pix * 255. / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
     byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));
@@ -113,22 +118,20 @@ void mainCycle(){
     float left = HUE_START;
     float right = HUE_END;
 
-    float x = c/255. + pix * .5 / stripLength;
-
+    float x = c/255. + pix * .5 / ARM_LENGTH;
     if (x >= 1)
       x -= 1.;
-    //if (hue < 0)
-    //  hue += 1;
 
     // sweeps the range. for x from 0 to 1, this function does this:
     // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
     float hue = abs(2 * (right - left) * x  - right + left) + left;
     
-    
-
     // linear ramp up of brightness, for those within 1/8th of the reference point
     float value = max(255 - 6 * delta, 15) / 255.;
     strip.setPixelColor(pix, hsvToRgb(hue, SATURATION, value));
+    #if defined (MIRRORED)
+      strip.setPixelColor(STRAND_LENGTH - 1 - pix, hsvToRgb(hue, SATURATION, value));
+    #endif
   }
 
   //blinkPerFrame();
