@@ -33,9 +33,12 @@
 #define BRIGHTNESS 255
 
 /**
- * Whether the pattern is mirrored
+ * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
+ * the LEDs are all daisy chained. An alternative is to have the center pixel
+ * being the first one, and split the d-out line down either sides
  */
-//#define MIRRORED
+#define MIRRORED
+#define REVERSED
 
 #if defined (MIRRORED)
   #define ARM_LENGTH (STRAND_LENGTH /2)
@@ -44,12 +47,14 @@
 #endif
 
 /** 
- *  Pattern definition
+ *  Pattern definition. The program cycles through a range on the wheel, and
+ *  back again. This defines the boundaries. Note that wraparound for the full
+ *  rainbow is not enabled. Would take special case code.
  */
 
-#define RAINBOW
+//#define RAINBOW
 //#define SEAPUNK
-//#define INDIGO
+#define INDIGO
 //#define BLUE_GREEN
 //#define HEART
 
@@ -128,9 +133,14 @@ void loop(){
     
     // linear ramp up of brightness, for those within 1/8th of the reference point
     float value = max(255 - 6 * delta, 15) / 255.;
-    strip.setPixelColor(pix, hsvToRgb(hue, SATURATION, value));
+
+    byte loc = pix;
+    #if defined (REVERSED)
+      loc = ARM_LENGTH + 1 - pix;
+    #endif
+    strip.setPixelColor(loc, hsvToRgb(hue, SATURATION, value));
     #if defined (MIRRORED)
-      strip.setPixelColor(STRAND_LENGTH - 1 - pix, hsvToRgb(hue, SATURATION, value));
+      strip.setPixelColor(STRAND_LENGTH - 1 - loc, hsvToRgb(hue, SATURATION, value));
     #endif
   }
 
