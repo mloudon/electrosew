@@ -136,7 +136,7 @@ void loop(){
 
     byte loc = pix;
     #if defined (REVERSED)
-      loc = ARM_LENGTH + 1 - pix;
+      loc = ARM_LENGTH - 1 - pix;
     #endif
     strip.setPixelColor(loc, hsvToRgb(hue, SATURATION, value));
     #if defined (MIRRORED)
