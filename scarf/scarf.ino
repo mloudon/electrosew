@@ -4,19 +4,73 @@
   #include <avr/power.h>
 #endif
 
-// Use PIN 6 for most board. But for the trinket, we don't even have pin6, so using
-// pin 0 instead.
-#define PIN 6
+/**
+ * This part is for hardware related config. It allows you to spec the board
+ * you are using, along with the LED strand length/brightness. The brightness is
+ * typically used to limit max power draw: at 60mA per LED (full white), you can
+ * power at most 8 LEDs from the 500mA 5V pin on boards like the Trinket/Arduino
+ * Nano. As the strand gets longer, you should use brightness to limit max current
+ * draw. However, the typical pattern won't ever reach full white on all LEDs, so
+ * the actual max current varies. It's probably best established via direct 
+ * measurement. An alternative reason to limit brightness is to improve battery
+ * life.
+ *
+ * Current configs:
+ * 
+ *  * Arduino Nano, use pin 6
+ *  * Adafruit Trinket 5V 16Mhz, use pin 0
+ *  
+ *  
+ */
+
 #if defined (__AVR_ATtiny85__)
   #define PIN 0
 #else
   #define PIN 6
 #endif
 
-// 
 #define STRAND_LENGTH 17
+#define BRIGHTNESS 255
 
-#define BRIGHTNESS 63
+/** 
+ *  Pattern definition
+ */
+
+//#define RAINBOW
+//#define SEAPUNK
+//#define INDIGO
+//#define BLUE_GREEN
+#define HEART
+
+#if defined (RAINBOW)
+  #define HUE_START 0
+  #define HUE_END 1
+  #define SATURATION 1.
+#endif
+
+#if defined (SEAPUNK)
+  #define HUE_START .333
+  #define HUE_END .833
+  #define SATURATION .8
+#endif
+
+#if defined (INDIGO)
+  #define HUE_START .666
+  #define HUE_END .833
+  #define SATURATION 1.
+#endif
+
+#if defined (BLUE_GREEN)
+  #define HUE_START .333
+  #define HUE_END .666
+  #define SATURATION .9
+#endif
+
+#if defined (HEART)
+  #define HUE_START .833
+  #define HUE_END 1.
+  #define SATURATION 1.
+#endif
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRAND_LENGTH, PIN, NEO_GRB + NEO_KHZ800);
 
@@ -27,7 +81,7 @@ void setup() {
   #endif
   // End of trinket special code
 
-  strip.setBrightness(BRIGHTNESS);
+  //strip.setBrightness(BRIGHTNESS);
 
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
@@ -39,30 +93,56 @@ void loop() {
 }
 
 void mainCycle(){
-  uint16_t i;
-  int t = millis();
-  byte c = getClock(t, 2);
-  byte x = getClock(t, 4);
+  byte stripLength = strip.numPixels();
+  unsigned long t = millis();
+  byte c = getClock(t, 3);
+  byte pulse = getClock(t, 5);
   
-  for (int i = 0; i < strip.numPixels(); i++){
+  for (byte pix = 0; pix < strip.numPixels(); pix++){
     // location of the pixel on a 0-255 scale
-    float dist = i * 256. / strip.numPixels();
-    byte delta = min(min(abs(dist - x), abs(dist - x + 256)), abs(dist - x - 255));
+    float dist = pix * 255. / strip.numPixels();
+
+    // messy, but some sort of least-of-3 distances, allowing wraping.
+    byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));
+
+    // hue selection. Mainly driving by c, but with some small shifting along
+    // the length of the strand.
+    //float hue = c/255. + ((float) pix * .2 / stripLength);
+
+    // sweep of a subset of the spectrum. 
+    float left = HUE_START;
+    float right = HUE_END;
+
+    float x = c/255. + pix * .5 / stripLength;
+
+    if (x >= 1)
+      x -= 1.;
+    //if (hue < 0)
+    //  hue += 1;
+
+    // sweeps the range. for x from 0 to 1, this function does this:
+    // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
+    float hue = abs(2 * (right - left) * x  - right + left) + left;
+    
+    
+
     // linear ramp up of brightness, for those within 1/8th of the reference point
-    float bright = max(255 - 6 * delta, 31) / 255.;
-    strip.setPixelColor(i, hsvToRgb(c/255., 1., bright));
+    float value = max(255 - 6 * delta, 15) / 255.;
+    strip.setPixelColor(pix, hsvToRgb(hue, SATURATION, value));
   }
 
   //blinkPerFrame();
-  
   strip.show();
-  delay(20); // to give max 50fps
+
+  // delay 20ms to give max 50fps. Could do something fancier here to try to 
+  // hit exactly 60fps (or whatever) if possible, but takinng another millis()
+  // reading, but not sure if there would be a point to that. 
+  delay(20); 
 }
 
 //Blinks the first pixel on and off. Used to check for framerate smoothness.
 
 bool red;
-
 void blinkPerFrame()
 {
     if (red)
@@ -82,6 +162,7 @@ void blinkPerFrame()
 // 4: 1/4hz
 // 3: 1/8hz
 // 2: 1/16hz
+// 1: 1/32hz
 byte getClock(unsigned long mil, byte rate)
 {
   return mil >> (8 - rate) % 256; 
@@ -104,7 +185,7 @@ byte getClock(unsigned long mil, byte rate)
 uint32_t hsvToRgb(float h, float s, float v) {
     float r, g, b;
 
-    int i = int(h * 6);
+    byte i = int(h * 6);
     float f = h * 6 - i;
     float p = v * (1 - s);
     float q = v * (1 - f * s);
