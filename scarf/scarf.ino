@@ -30,7 +30,7 @@
 #endif
 
 #define STRAND_LENGTH 17
-#define BRIGHTNESS 255
+#define BRIGHTNESS 31
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
@@ -46,15 +46,36 @@
   #define ARM_LENGTH STRAND_LENGTH
 #endif
 
+/**
+ * Whether the pulse accerlerates. To fit into Trinket flash limitations
+ * (5310b), this can only be a square, or not.
+ * 
+ * Reduced render range allows to limit the glow from an early pulse
+ * wrapping around to the end of the strip, causing a weird pre-glow.
+ * This isn't a problem in the linear one, as the pulses are equidistance
+ * throughout the animation cycle.
+ */
+
+#define ACCELERATE
+
+#if defined(ACCELERATE)
+  #define EXPONENT 2
+  #define RENDER_RANGE 224
+#else
+  #define EXPONENT 1
+  #define RENDER_RANGE 255
+#endif
+  
+
 /** 
  *  Pattern definition. The program cycles through a range on the wheel, and
  *  back again. This defines the boundaries. Note that wraparound for the full
  *  rainbow is not enabled. Would take special case code.
  */
 
-//#define RAINBOW
+#define RAINBOW
 //#define SEAPUNK
-#define INDIGO
+//#define INDIGO
 //#define BLUE_GREEN
 //#define HEART
 
@@ -105,25 +126,25 @@ void setup() {
 
 void loop(){
   unsigned long t = millis();
-  byte c = getClock(t, 3);
+  byte color = getClock(t, 2);
   byte pulse = getClock(t, 5);
+  pulse = pow(pulse/255., EXPONENT) * 255;
   
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
-    // location of the pixel on a 0-255 scale
-    float dist = pix * 255. / ARM_LENGTH;
+    // location of the pixel on a 0-RENDER_RANGE scale.
+    float dist = pix * RENDER_RANGE / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
     byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));
 
     // hue selection. Mainly driving by c, but with some small shifting along
     // the length of the strand.
-    //float hue = c/255. + ((float) pix * .2 / stripLength);
 
     // sweep of a subset of the spectrum. 
     float left = HUE_START;
     float right = HUE_END;
 
-    float x = c/255. + pix * .5 / ARM_LENGTH;
+    float x = color / 255. + pix * .5 / ARM_LENGTH;
     if (x >= 1)
       x -= 1.;
 
@@ -198,7 +219,7 @@ byte getClock(unsigned long mil, byte rate)
 uint32_t hsvToRgb(float h, float s, float v) {
     float r, g, b;
 
-    byte i = int(h * 6);
+    byte i = byte(h * 6);
     float f = h * 6 - i;
     float p = v * (1 - s);
     float q = v * (1 - f * s);
