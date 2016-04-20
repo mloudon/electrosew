@@ -98,7 +98,7 @@ void setup() {
   #endif
   // End of trinket special code
 
-  strip.setBrightness(BRIGHTNESS);
+  //strip.setBrightness(BRIGHTNESS);
 
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
@@ -109,12 +109,8 @@ void loop(){
   
   //byte color = getClock(t, 2);
   
-  byte pulse = 255;// * PerlinNoise2(t,.25);
-  pulse = 255 * PerlinNoise_1D(t);
+  byte pulse = 255 * (PerlinNoise_1D(t / 1000.) / 2 + .5);
 
-  //strip.setPixelColor(pulse, strip.Color(255, 0, 0));
-  //strip.show();
-  //return;
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
     byte dist = pix * 255 / ARM_LENGTH;
@@ -145,7 +141,7 @@ void loop(){
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
   // reading, but not sure if there would be a point to that. 
-  delay(20); 
+  delay(0); 
 }
 
 //Blinks the first pixel on and off. Used to check for framerate smoothness.
@@ -247,48 +243,43 @@ float hue2rgb(float p, float q, float t) {
     return p;
 }
 
-float Noise1(int x){
-    return sin(x);
-    x = pow((x<<13), x);
-    return ( 1.0 - ( (x * (x * x * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
+float Noise(int xx, int i){
+    return sin(xx * (1 + i/10.));
+    //int x = (int)pow((xx << 1), xx);
+    //println(xx + " " + x);
+    //return ( 1.0 - ( (x * (x * x * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);    
 }
 
-
-float SmoothedNoise1(float x){
-  return Noise1(x);
-    return Noise1(x)/2  +  Noise1(x-1)/4  +  Noise1(x+1)/4;
-}
-
-float InterpolatedNoise_1(float x){
-
+float InterpolatedNoise(float x, int i){
+      //println(x);
       int integer_X    = int(x);
       float fractional_X = x - integer_X;
 
-      float v1 = SmoothedNoise1(integer_X);
-      float v2 = SmoothedNoise1(integer_X + 1);
+      float v1 = Noise(integer_X, i);
+      float v2 = Noise(integer_X + 1, i);
 
       return Interpolate(v1 , v2 , fractional_X);
+
 }
 
-float Interpolate(float a, float b, float frac){
-  return a + frac * (b-a);
-}
-
-
-float PerlinNoise_1D(float x){
-
-      float total = 0;
-      float p = .25;
-      int n = 3 - 1;
-
-      for (int i = 0; i < 3; i++)
+float Interpolate(float a, float b, float x)
 {
-          float frequency = pow(2, i);
-          float amplitude = pow(p, i);
+    return a + (b-a) * x;
+    
+    float ft = x * 3.1415927;
+    float f = (1 - cos(ft)) * .5;
 
-          total = total + InterpolatedNoise_1(x * frequency) * amplitude;
-
+    return  a*(1-f) + b*f;
 }
-      return total;
 
+float PerlinNoise_1D(float x)
+{
+      float total = 0;
+      for (int i = 0; i < 3; i++)
+      {
+          int frequency = (int) pow(2,i);
+          float amplitude = pow(.25, i);
+          total += InterpolatedNoise(x * frequency, i) * amplitude;
+      }
+      return total;
 }
