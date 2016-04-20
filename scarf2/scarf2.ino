@@ -19,8 +19,6 @@
  * 
  *  * Arduino Nano, use pin 6
  *  * Adafruit Trinket 5V 16Mhz, use pin 0
- *  
- *  
  */
 
 #if defined (__AVR_ATtiny85__)
@@ -37,7 +35,7 @@
  * the LEDs are all daisy chained. An alternative is to have the center pixel
  * being the first one, and split the d-out line down either sides
  */
-//#define MIRRORED
+#define MIRRORED
 //#define REVERSED
 
 #if defined (MIRRORED)
@@ -98,6 +96,7 @@ void setup() {
   #endif
   // End of trinket special code
 
+  //Saves a few bytes. Uncomment for bigger boards.
   //strip.setBrightness(BRIGHTNESS);
 
   strip.begin();
@@ -105,29 +104,43 @@ void setup() {
 }
 
 void loop(){
+  
   unsigned long t = millis();
   
-  //byte color = getClock(t, 2);
+  byte color = getClock(t, 2);
   
-  byte pulse = 255 * (PerlinNoise_1D(t / 1000.) / 2 + .5);
+  // TODO: Add a drift
+  byte pulse =  255 * (perlinNoise1D(t / 1000.) * .4 + .5);
 
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
     byte dist = pix * 255 / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
-    byte delta = abs(dist - pulse);
-    
-    // linear ramp up of brightness, for those within 1/8th of the reference point
-    
-    float value = max(255 - 6 * delta, 15) / 255.;
+    byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));  
+    // linear ramp up of brightness, for those within 1/8th of the reference point   
+    float value = max(255 - 6 * delta, 15) / 2047.;
+
+    // hue selection. Mainly driving by c, but with some small shifting along
+    // the length of the strand.
+
+    // sweep of a subset of the spectrum. 
+    float left = HUE_START;
+    float right = HUE_END;
+    float x = color / 255. + pix * .5 / ARM_LENGTH;
+    if (x >= 1)
+      x -= 1.;
+    // sweeps the range. for x from 0 to 1, this function does this:
+    // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
+    float hue = abs(2 * (right - left) * x  - right + left) + left;
 
     byte loc = pix;
     #if defined (REVERSED)
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
-    uint32_t c = strip.Color(255 * value, 255 * value , 255 * value);
+    // TODO: Re-eable fancy colour code
+    uint32_t c = strip.Color(255 * value, 0 , 255 * value);
     //uint32_t c = hsvToRgb(hue, SATURATION, value);
     strip.setPixelColor(loc, c);
     #if defined (MIRRORED)
@@ -141,7 +154,7 @@ void loop(){
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
   // reading, but not sure if there would be a point to that. 
-  delay(0); 
+  delay(20); 
 }
 
 //Blinks the first pixel on and off. Used to check for framerate smoothness.
@@ -243,26 +256,41 @@ float hue2rgb(float p, float q, float t) {
     return p;
 }
 
-float Noise(int xx, int i){
+/**
+ * Perin code hacked together from same guide as everywhere else:
+ * http://freespace.virgin.net/hugo.elias/models/m_perlin.htm
+ * 
+ * Modifications include using sine instead of the given noise function
+ * and not using any smoothing at all.
+ */
+
+/**
+ * A bit of a hack: just uses sine, with some frequency shifting. Not 
+ * exactly random, but seems to have the right effect
+ */
+float noise(int xx, int i){
     return sin(xx * (1 + i/10.));
     //int x = (int)pow((xx << 1), xx);
     //println(xx + " " + x);
     //return ( 1.0 - ( (x * (x * x * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);    
 }
 
-float InterpolatedNoise(float x, int i){
+float interpolatedNoise(float x, int i){
       //println(x);
       int integer_X    = int(x);
       float fractional_X = x - integer_X;
 
-      float v1 = Noise(integer_X, i);
-      float v2 = Noise(integer_X + 1, i);
+      float v1 = noise(integer_X, i);
+      float v2 = noise(integer_X + 1, i);
 
-      return Interpolate(v1 , v2 , fractional_X);
+      return interpolate(v1 , v2 , fractional_X);
 
 }
 
-float Interpolate(float a, float b, float x)
+/**
+ * Using linear for now.
+ */
+float interpolate(float a, float b, float x)
 {
     return a + (b-a) * x;
     
@@ -272,14 +300,14 @@ float Interpolate(float a, float b, float x)
     return  a*(1-f) + b*f;
 }
 
-float PerlinNoise_1D(float x)
+float perlinNoise1D(float x)
 {
       float total = 0;
       for (int i = 0; i < 3; i++)
       {
           int frequency = (int) pow(2,i);
           float amplitude = pow(.25, i);
-          total += InterpolatedNoise(x * frequency, i) * amplitude;
+          total += interpolatedNoise(x * frequency, i) * amplitude;
       }
       return total;
 }
