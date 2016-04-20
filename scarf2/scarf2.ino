@@ -30,7 +30,7 @@
 #endif
 
 #define STRAND_LENGTH 17
-#define BRIGHTNESS 63
+#define BRIGHTNESS 255
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
@@ -90,7 +90,6 @@
 #endif
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRAND_LENGTH, PIN, NEO_GRB + NEO_KHZ800);
-int location, velocity;
 
 void setup() {
   // This is for Trinket 5V 16MHz, you can remove these three lines if you are not using a Trinket
@@ -98,10 +97,6 @@ void setup() {
     if (F_CPU == 16000000) clock_prescale_set(clock_div_1);
   #endif
   // End of trinket special code
-
-  randomSeed(0);
-  location = 0;
-  velocity = 5;
 
   strip.setBrightness(BRIGHTNESS);
 
@@ -111,38 +106,24 @@ void setup() {
 
 void loop(){
   unsigned long t = millis();
-  byte color = getClock(t, 2);
-  byte pulse = getClock(t, 5);
-  if (pulse > 100){
-    int acc = random(3) - 1 ;
   
-    velocity += acc;
+  //byte color = getClock(t, 2);
   
-    if (velocity > 5)
-      velocity = 5;
-    if (velocity < -5)
-      velocity = -5;
-  }  
+  byte pulse = 255;// * PerlinNoise2(t,.25);
+  pulse = 255 * PerlinNoise_1D(t);
 
-  location += velocity;
-  
-  if (location > 255)
-    location -= 255;
-
-  if (location < 0)
-    location += 255;
-  pulse = location;
+  //strip.setPixelColor(pulse, strip.Color(255, 0, 0));
+  //strip.show();
+  //return;
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
     byte dist = pix * 255 / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
     byte delta = abs(dist - pulse);
-
-    // sweeps the range. for x from 0 to 1, this function does this:
-    // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
-    float hue = color/255.;
+    
     // linear ramp up of brightness, for those within 1/8th of the reference point
+    
     float value = max(255 - 6 * delta, 15) / 255.;
 
     byte loc = pix;
@@ -150,8 +131,8 @@ void loop(){
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
-    //uint32_t c = strip.Color(255 * value, 0 , 255 * value);
-    uint32_t c = hsvToRgb(hue, SATURATION, value);
+    uint32_t c = strip.Color(255 * value, 255 * value , 255 * value);
+    //uint32_t c = hsvToRgb(hue, SATURATION, value);
     strip.setPixelColor(loc, c);
     #if defined (MIRRORED)
       strip.setPixelColor(STRAND_LENGTH - 1 - loc, c);
@@ -264,4 +245,50 @@ float hue2rgb(float p, float q, float t) {
     if(t < 1/2) return q;
     if(t < 2/3) return p + (q - p) * (2/3 - t) * 6;
     return p;
+}
+
+float Noise1(int x){
+    return sin(x);
+    x = pow((x<<13), x);
+    return ( 1.0 - ( (x * (x * x * 15731 + 789221) + 1376312589) & 0x7fffffff) / 1073741824.0);
+}
+
+
+float SmoothedNoise1(float x){
+  return Noise1(x);
+    return Noise1(x)/2  +  Noise1(x-1)/4  +  Noise1(x+1)/4;
+}
+
+float InterpolatedNoise_1(float x){
+
+      int integer_X    = int(x);
+      float fractional_X = x - integer_X;
+
+      float v1 = SmoothedNoise1(integer_X);
+      float v2 = SmoothedNoise1(integer_X + 1);
+
+      return Interpolate(v1 , v2 , fractional_X);
+}
+
+float Interpolate(float a, float b, float frac){
+  return a + frac * (b-a);
+}
+
+
+float PerlinNoise_1D(float x){
+
+      float total = 0;
+      float p = .25;
+      int n = 3 - 1;
+
+      for (int i = 0; i < 3; i++)
+{
+          float frequency = pow(2, i);
+          float amplitude = pow(p, i);
+
+          total = total + InterpolatedNoise_1(x * frequency) * amplitude;
+
+}
+      return total;
+
 }
