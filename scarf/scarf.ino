@@ -132,7 +132,7 @@ void loop(){
   
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
-    float dist = pix * RENDER_RANGE / ARM_LENGTH;
+    byte dist = pix * RENDER_RANGE / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
     byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));
