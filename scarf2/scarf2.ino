@@ -23,12 +23,13 @@
 
 #if defined (__AVR_ATtiny85__)
   #define PIN 0
+  #define TRINKET
 #else
   #define PIN 6
 #endif
 
-#define STRAND_LENGTH 17
-#define BRIGHTNESS 255
+#define STRAND_LENGTH 25
+#define BRIGHTNESS 127
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
@@ -51,8 +52,8 @@
  *  rainbow is not enabled. Would take special case code.
  */
 
-#define RAINBOW
-//#define SEAPUNK
+//#define RAINBOW
+#define SEAPUNK
 //#define INDIGO
 //#define BLUE_GREEN
 //#define HEART
@@ -91,13 +92,16 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRAND_LENGTH, PIN, NEO_GRB + NEO_KH
 
 void setup() {
   // This is for Trinket 5V 16MHz, you can remove these three lines if you are not using a Trinket
-  #if defined (__AVR_ATtiny85__)
+  #if defined (TRINKET)
     if (F_CPU == 16000000) clock_prescale_set(clock_div_1);
   #endif
   // End of trinket special code
 
   //Saves a few bytes. Uncomment for bigger boards.
-  //strip.setBrightness(BRIGHTNESS);
+  #if defined (TRINKET)
+  #else
+    strip.setBrightness(BRIGHTNESS);
+  #endif
 
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
@@ -109,8 +113,16 @@ void loop(){
   
   byte color = getClock(t, 2);
   
-  // TODO: Add a drift
   byte pulse =  255 * (perlinNoise1D(t / 1000.) * .4 + .5);
+
+
+  #if defined(TRINKET)
+  #else
+    byte drift = getClock(t, 2);
+    pulse += drift;
+    if (pulse > 255)
+      pulse -= 255;
+  #endif
 
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
@@ -119,7 +131,7 @@ void loop(){
     // messy, but some sort of least-of-3 distances, allowing wraping.
     byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));  
     // linear ramp up of brightness, for those within 1/8th of the reference point   
-    float value = max(255 - 6 * delta, 15) / 2047.;
+    float value = max(255 - 6 * delta, 15) / 255.;
 
     // hue selection. Mainly driving by c, but with some small shifting along
     // the length of the strand.
@@ -139,9 +151,12 @@ void loop(){
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
-    // TODO: Re-eable fancy colour code
-    uint32_t c = strip.Color(255 * value, 0 , 255 * value);
-    //uint32_t c = hsvToRgb(hue, SATURATION, value);
+    #if defined(TRINKET)
+      uint32_t c = strip.Color(255 * value, 0 , 255 * value);
+    #else
+      uint32_t c = hsvToRgb(hue, SATURATION, value);
+    #endif
+    
     strip.setPixelColor(loc, c);
     #if defined (MIRRORED)
       strip.setPixelColor(STRAND_LENGTH - 1 - loc, c);
@@ -292,12 +307,14 @@ float interpolatedNoise(float x, int i){
  */
 float interpolate(float a, float b, float x)
 {
-    return a + (b-a) * x;
-    
-    float ft = x * 3.1415927;
-    float f = (1 - cos(ft)) * .5;
+    #if defined(TRINKET)
+      return a + (b-a) * x;
+    #else
+      float ft = x * 3.1415927;
+      float f = (1 - cos(ft)) * .5;
 
-    return  a*(1-f) + b*f;
+      return  a*(1-f) + b*f;
+    #endif
 }
 
 float perlinNoise1D(float x)
