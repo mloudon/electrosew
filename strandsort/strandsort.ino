@@ -56,7 +56,7 @@ void run_sort() {
   update_strip(pix_colors);
   Serial.println("sorting");
   int n = sizeof pix_colors / sizeof pix_colors[0];
-  quick_sort(pix_colors, n);
+  bubble_sort(pix_colors, n);
   Serial.println("sorted");
   for (int i = 0; i < strip.numPixels(); i++) {
     spin_strip(pix_colors);
@@ -77,7 +77,7 @@ void spin_strip(int *array) {
     update_strip(source);
     while (!((unsigned long)(millis() - previous_spin_millis) >= spin_interval)) {
       delay(10);
-      update_strip(source);
+      //update_strip(source);
     }
     previous_spin_millis = millis();
   }
@@ -127,13 +127,35 @@ void quick_sort (int *a, int n) {
     update_strip(a);
     while (!((unsigned long)(millis() - previous_step_millis) >= step_interval)) {
       delay(10);
-      update_strip(a);
+      //update_strip(a);
     }
     Serial.println("step");
     previous_step_millis = millis();
   }
   quick_sort(a, i);
   quick_sort(a + i, n - i);
+}
+
+void bubble_sort (int *a, int n) {
+  int i, t, s = 1;
+  while (s) {
+    s = 0;
+    for (i = 1; i < n; i++) {
+      if (a[i] < a[i - 1]) {
+        t = a[i];
+        a[i] = a[i - 1];
+        a[i - 1] = t;
+        s = 1;
+        update_strip(a);
+        while (!((unsigned long)(millis() - previous_step_millis) >= step_interval)) {
+          delay(10);
+          //update_strip(a);
+        }
+        Serial.println("step");
+        previous_step_millis = millis();
+      }
+    }
+  }
 }
 
 /**
