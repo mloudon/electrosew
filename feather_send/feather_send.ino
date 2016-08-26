@@ -23,6 +23,8 @@ Adafruit_SSD1306 display(OLED_RESET);
 #define Bpin 6
 #define Cpin 5
 
+#define LED 13
+
 /* for feather32u4 */
 #define RFM95_CS 8
 #define RFM95_RST 4
@@ -36,8 +38,8 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 
 // timing
-int  updateInterval = 2000;      // interval between updates
-unsigned long lastUpdate; // last update of position
+#define UPDATE_INTERVAL 2000      // interval between updates
+unsigned long lastUpdate, lastSend; // last update of position
 
 // tinyGPS
 #include <TinyGPS.h>
@@ -48,6 +50,8 @@ void setup()
 {
   pinMode(RFM95_RST, OUTPUT);
   digitalWrite(RFM95_RST, HIGH);
+
+  pinMode(LED, OUTPUT);
 
   pinMode(Apin, INPUT_PULLUP);
   pinMode(Bpin, INPUT_PULLUP);
@@ -81,116 +85,80 @@ void setup()
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(23, false);
 
-  Serial.println("GPS echo test");
   Serial.begin(9600);
-
   Serial1.begin(9600);
 
   lastUpdate = millis();
+  lastSend = millis() + 1000;
 }
-
-int16_t packetnum = 0;  // packet counter, we increment per xmission
-
-//#define BUFSIZE 100
-//int buf_size = 0;
-//char BUF[BUFSIZE];
-//
-////$GPGGA,033254.000,(lat)4044.6560,(ns)N,(lon)07400.1044,(ew)W,2,09,(hdop)0.95,(alt)20.8,M,-34.2,M,0000,0000*6A
-//
-//
-//void processBuffer() {
-//  char subbuf[20];
-//
-//  int field = 0;
-//  int j = 0;
-//  for (int i = 0; i < BUFSIZE; i++) {
-//    if (BUF[i] == ',') {
-//      subbuf[j] = '\0';
-//
-//      switch(field) {
-//        case 0:
-//          Serial.println("hello");
-//          Serial.println((int)subbuf[0]);
-//          Serial.println((int)subbuf[1]);
-//          Serial.println((int)subbuf[2]);
-//          Serial.println((int)subbuf[3]);
-//          if (strcmp(subbuf, "$GPGGA") != 0) {
-//          Serial.println("nope");
-//
-//            return;
-//          }
-//                    Serial.println("match");
-//
-//          break;
-//      }
-//
-//      field++;
-//      j = 0;
-//    } else if (j == 20) {
-//      // overrun
-//      return;
-//    } else {
-//      subbuf[j++] = BUF[i];
-//    }
-//  }
-//
-//  buf_size = 0;
-//}
 
 String timeStr = "";
 String locStr = "";
+String playaStr = ")( & nth hyperplane";
 bool newData = false;
+bool newMsg = false;
+uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+String lastRSSI;
 
 void loop()
 {
-  //  if (Serial.available()) {
-  //    char c = Serial.read();
-  //    Serial1.write(c);
-  //  }
-  //  if (Serial1.available()) {
-  //    char c = Serial1.read();
-  //    //Serial.write(c);
-  //    if (c == 0x0d || c == 0x0a || buf_size == BUFSIZE - 1) {
-  //      BUF[buf_size++] = '\0';
-  //      processBuffer();
-  //    } else {
-  //      BUF[buf_size++] = c;
-  //    }
-  //  }
-
-  
   if (Serial1.available())
   {
     char c = Serial1.read();
-    Serial.write(c); // uncomment this line if you want to see the GPS data flowing
+    //Serial.write(c);
     if (gps.encode(c)) { // Did a new valid sentence come in?
       newData = true;
     }
   }
 
-  if (lastUpdate > millis()) lastUpdate = millis();
-
-  if ((millis() - lastUpdate) > updateInterval) // time to update
+  if (rf95.available())
   {
-    lastUpdate = millis();
-
-    if (newData) {
-      timeStr = fix_time();
-      locStr = fix();
-      newData = false;
+    uint8_t len = sizeof(buf);
+    if (rf95.recv(buf, &len))
+    {
+      newMsg = true;
+      lastRSSI = String(rf95.lastRssi());
+      digitalWrite(LED, HIGH);
+      digitalWrite(LED, LOW);
     }
-
-    char radiopacket[5] = "#    ";
-    itoa(packetnum++, radiopacket + 2, 10);
-    say("Sending " + String(radiopacket), timeStr, locStr);
-    //say("Sending " + String(radiopacket), "", "");
-    radiopacket[19] = 0;
-
-    rf95.send((uint8_t *)radiopacket, 5);
-    rf95.waitPacketSent();
   }
 
-  //playaCoords(41.63, -72.59);
+  if (lastUpdate > millis()) lastUpdate = millis();
+
+  if ((millis() - lastUpdate) > UPDATE_INTERVAL) // time to update
+  {
+    lastUpdate = millis();
+    attemptUpdateFix();
+
+    if (newMsg)
+    {
+      say(String((char*)buf), "RSSI: " + lastRSSI, locStr);
+      newMsg = false;
+    }
+  }
+
+  if (lastSend > millis()) lastSend = millis();
+  if ((millis() - lastSend) > UPDATE_INTERVAL * 2 + 1000) // every second interval, lag by 1s
+  {
+    lastSend = millis();
+    attemptUpdateFix();
+    uint8_t len = playaStr.length() + 1;
+    char radiopacket[len];
+    playaStr.toCharArray(radiopacket, len) ;
+    say("Sending", timeStr, locStr);
+
+    rf95.send((uint8_t *)radiopacket, len);
+    rf95.waitPacketSent();
+  }
+}
+
+void attemptUpdateFix() {
+  if (newData) {
+    setFixTime();
+    setFix();
+    newData = false;
+  }
+
 }
 
 void say(String s, String t, String u) {
@@ -204,23 +172,27 @@ void say(String s, String t, String u) {
   display.display();
 }
 
-String fix () {
+void setFix () {
   float flat, flon;
   unsigned long age;
   gps.f_get_position(&flat, &flon, &age);
 
-  String s =  String(flat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flat, 6) + " " + String(flon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flon, 6);
-
-  return s;
+  locStr =  String(flat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flat, 6) + " " + String(flon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flon, 6);
+  Serial.println(locStr);
+  if (flat == TinyGPS::GPS_INVALID_F_ANGLE || flon == TinyGPS::GPS_INVALID_F_ANGLE) {
+    playaStr = "404 cosmos not found";
+  } else {
+    playaStr = playaCoords(flat, flon);
+  }
+  Serial.println(playaStr);
 }
 
-String fix_time() {
+void setFixTime() {
   int year;
   byte month, day, hour, minute, second, hundredths;
   unsigned long age;
   gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
-  String s =  String(hour) + ":" + String(minute) + ":" +  String(second) + "/" + String(age) + "ms";
-  return s;
+  timeStr =  String(hour) + ":" + String(minute) + ":" +  String(second) + "/" + String(age) + "ms";
 }
 
 ///// PLAYA COORDINATES CODE /////
@@ -278,17 +250,19 @@ int getReferenceRing(float dist) {
   return 0;
 }
 
-/*
-  def get_ref_disp(n):
-    if n == 0:
-        return ')\'('
-    elif n == 1:
-        return 'Espl'
-    else:
-        return chr(ord('A') + n - 2)
-*/
+String getRefDisp(int n) {
+  String s = "";
+  if (n == 0) {
+    s = ")(";
+  } else if (n == 1) {
+    s == "Espl";
+  } else {
+    s == String(char(int('A') + n - 2));
+  }
+  return s;
+}
 
-void playaCoords(float lat, float lon) {
+String playaCoords(float lat, float lon) {
   float m_dx = (lon - MAN_LON) * cos(MAN_LAT / DEG_PER_RAD) * METERS_PER_DEGREE;
   float m_dy = (lat - MAN_LAT) * METERS_PER_DEGREE;
 
@@ -301,6 +275,7 @@ void playaCoords(float lat, float lon) {
 
   int hour = clock_minutes / 60;
   int minute = clock_minutes % 60;
+  String clock_disp = String(hour) + ":" + String(minute);
   //clock_disp = '%d:%02d' % (minutes // 60, minutes % 60)
 
   int refRing;
@@ -309,14 +284,12 @@ void playaCoords(float lat, float lon) {
   } else {
     refRing = getReferenceRing(dist);
   }
-  float refDelta = dist - ringRadius(refRing);
-  //ref_disp = get_ref_disp(ref_ring)
 
-  //display.println(hour);
-  //display.println(minute);
-  //display.println(refRing);
-  //display.println(refDelta);
-  //return '%s %s%s%dm' % (clock_disp, ref_disp, '+' if ref_diff >= 0 else '-', abs(int(round(ref_diff))))
+  float refDelta = dist - ringRadius(refRing);
+  unsigned long refDeltaRound = long(refDelta);
+
+  String ret = String(clock_disp) + " & " + getRefDisp(refRing) + String(refDelta >= 0 ? "+" : "-") + String(refDeltaRound);
+  return ret;
 }
 
 
