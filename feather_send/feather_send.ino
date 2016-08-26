@@ -39,6 +39,11 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 int  updateInterval = 2000;      // interval between updates
 unsigned long lastUpdate; // last update of position
 
+// tinyGPS
+#include <TinyGPS.h>
+
+TinyGPS gps;
+
 void setup()
 {
   pinMode(RFM95_RST, OUTPUT);
@@ -78,6 +83,7 @@ void setup()
 
   Serial.println("GPS echo test");
   Serial.begin(9600);
+
   Serial1.begin(9600);
 
   lastUpdate = millis();
@@ -85,66 +91,80 @@ void setup()
 
 int16_t packetnum = 0;  // packet counter, we increment per xmission
 
-#define BUFSIZE 100
-int buf_size = 0;
-char BUF[BUFSIZE];
+//#define BUFSIZE 100
+//int buf_size = 0;
+//char BUF[BUFSIZE];
+//
+////$GPGGA,033254.000,(lat)4044.6560,(ns)N,(lon)07400.1044,(ew)W,2,09,(hdop)0.95,(alt)20.8,M,-34.2,M,0000,0000*6A
+//
+//
+//void processBuffer() {
+//  char subbuf[20];
+//
+//  int field = 0;
+//  int j = 0;
+//  for (int i = 0; i < BUFSIZE; i++) {
+//    if (BUF[i] == ',') {
+//      subbuf[j] = '\0';
+//
+//      switch(field) {
+//        case 0:
+//          Serial.println("hello");
+//          Serial.println((int)subbuf[0]);
+//          Serial.println((int)subbuf[1]);
+//          Serial.println((int)subbuf[2]);
+//          Serial.println((int)subbuf[3]);
+//          if (strcmp(subbuf, "$GPGGA") != 0) {
+//          Serial.println("nope");
+//
+//            return;
+//          }
+//                    Serial.println("match");
+//
+//          break;
+//      }
+//
+//      field++;
+//      j = 0;
+//    } else if (j == 20) {
+//      // overrun
+//      return;
+//    } else {
+//      subbuf[j++] = BUF[i];
+//    }
+//  }
+//
+//  buf_size = 0;
+//}
 
-//$GPGGA,033254.000,(lat)4044.6560,(ns)N,(lon)07400.1044,(ew)W,2,09,(hdop)0.95,(alt)20.8,M,-34.2,M,0000,0000*6A
-
-
-void processBuffer() {
-  char subbuf[20];
-
-  int field = 0;
-  int j = 0;
-  for (int i = 0; i < BUFSIZE; i++) {
-    if (BUF[i] == ',') {
-      subbuf[j] = '\0';
-
-      switch(field) {
-        case 0:
-          Serial.println("hello");
-          Serial.println((int)subbuf[0]);
-          Serial.println((int)subbuf[1]);
-          Serial.println((int)subbuf[2]);
-          Serial.println((int)subbuf[3]);
-          if (strcmp(subbuf, "$GPGGA") != 0) {
-          Serial.println("nope");
-            
-            return;     
-          }
-                    Serial.println("match");
-
-          break;
-      }
-      
-      field++;
-      j = 0;
-    } else if (j == 20) {
-      // overrun
-      return;
-    } else {
-      subbuf[j++] = BUF[i];
-    }
-  }
-  
-  buf_size = 0;
-}
+String timeStr = "";
+String locStr = "";
+bool newData = false;
 
 void loop()
 {
-//  if (Serial.available()) {
-//    char c = Serial.read();
-//    Serial1.write(c);
-//  }
-  if (Serial1.available()) {
+  //  if (Serial.available()) {
+  //    char c = Serial.read();
+  //    Serial1.write(c);
+  //  }
+  //  if (Serial1.available()) {
+  //    char c = Serial1.read();
+  //    //Serial.write(c);
+  //    if (c == 0x0d || c == 0x0a || buf_size == BUFSIZE - 1) {
+  //      BUF[buf_size++] = '\0';
+  //      processBuffer();
+  //    } else {
+  //      BUF[buf_size++] = c;
+  //    }
+  //  }
+
+  
+  if (Serial1.available())
+  {
     char c = Serial1.read();
-    //Serial.write(c);
-    if (c == 0x0d || c == 0x0a || buf_size == BUFSIZE - 1) {
-      BUF[buf_size++] = '\0';
-      processBuffer();
-    } else {
-      BUF[buf_size++] = c;
+    Serial.write(c); // uncomment this line if you want to see the GPS data flowing
+    if (gps.encode(c)) { // Did a new valid sentence come in?
+      newData = true;
     }
   }
 
@@ -153,17 +173,24 @@ void loop()
   if ((millis() - lastUpdate) > updateInterval) // time to update
   {
     lastUpdate = millis();
+
+    if (newData) {
+      timeStr = fix_time();
+      locStr = fix();
+      newData = false;
+    }
+
     char radiopacket[5] = "#    ";
     itoa(packetnum++, radiopacket + 2, 10);
-    // say("Sending " + String(radiopacket), fix_time(), fix());
-    say("Sending " + String(radiopacket), "", "");
+    say("Sending " + String(radiopacket), timeStr, locStr);
+    //say("Sending " + String(radiopacket), "", "");
     radiopacket[19] = 0;
 
     rf95.send((uint8_t *)radiopacket, 5);
     rf95.waitPacketSent();
   }
 
-  playaCoords(41.63, -72.59);
+  //playaCoords(41.63, -72.59);
 }
 
 void say(String s, String t, String u) {
@@ -177,18 +204,24 @@ void say(String s, String t, String u) {
   display.display();
 }
 
-//String fix () {
-//  String s =  "";
-//  if (GPS.fix) {
-//    s =  String(GPS.latitude, 4) + (GPS.lat) + " " + String(GPS.longitude, 4) + (GPS.lon);
-//  }
-//  return s;
-//}
-//
-//String fix_time() {
-//  String s =  String(GPS.hour) + ":" + String(GPS.minute) + ":" +  String(GPS.seconds);
-//  return s;
-//}
+String fix () {
+  float flat, flon;
+  unsigned long age;
+  gps.f_get_position(&flat, &flon, &age);
+
+  String s =  String(flat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flat, 6) + " " + String(flon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flon, 6);
+
+  return s;
+}
+
+String fix_time() {
+  int year;
+  byte month, day, hour, minute, second, hundredths;
+  unsigned long age;
+  gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
+  String s =  String(hour) + ":" + String(minute) + ":" +  String(second) + "/" + String(age) + "ms";
+  return s;
+}
 
 ///// PLAYA COORDINATES CODE /////
 
