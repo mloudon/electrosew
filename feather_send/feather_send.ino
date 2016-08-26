@@ -199,8 +199,6 @@ void setFixTime() {
 
 #define DEG_PER_RAD (180. / 3.1415926535)
 #define CLOCK_MINUTES (12 * 60)
-#define MAN_LAT 40.7864
-#define MAN_LON -119.2065
 #define METERS_PER_DEGREE (40030230. / 360.)
 // Direction of north in clock units
 #define NORTH 10.5  // hours
@@ -214,6 +212,16 @@ void setFixTime() {
 #define RADIAL_GAP 2.  // hours
 // How far radially from edge of city to show distance relative to city streets
 #define RADIAL_BUFFER .25  // hours
+
+// production
+//#define MAN_LAT 40.7864
+//#define MAN_LON -119.2065
+//#define SCALE 1.
+
+// testing
+#define MAN_LAT 40.779625
+#define MAN_LON -73.965394
+#define SCALE .166
 
 // 0=man, 1=espl, 2=A, 3=B, ...
 float ringRadius(int n) {
@@ -251,32 +259,33 @@ int getReferenceRing(float dist) {
 }
 
 String getRefDisp(int n) {
-  String s;
   if (n == 0) {
-    s = ")(";
+    return ")(";
   } else if (n == 1) {
-    s == "Espl";
+    return "Espl";
   } else {
-    s == String(char(int('A') + n - 2));
+    return String(char(int('A') + n - 2));
   }
-  return s;
 }
 
 String playaCoords(float lat, float lon) {
+  // Precision issues-- float for GPS only gives about ~5m resolution. Arduino doubles are
+  // fake -- same precision as floats.
+  // If we could get lat/lon in fixed-point (say degrees * 1e5), we could preserve precision.
   float m_dx = (lon - MAN_LON) * cos(MAN_LAT / DEG_PER_RAD) * METERS_PER_DEGREE;
   float m_dy = (lat - MAN_LAT) * METERS_PER_DEGREE;
 
-  float dist = sqrt(m_dx * m_dx + m_dy * m_dy);
+  float dist = SCALE * sqrt(m_dx * m_dx + m_dy * m_dy);
   float bearing = DEG_PER_RAD * atan2(m_dx, m_dy);
 
   float clock_hours = (bearing / 360. * 12. + NORTH);
   int clock_minutes = (int)(clock_hours * 60 + .5);
+  // Force into the range [0, CLOCK_MINUTES)
   clock_minutes = ((clock_minutes % CLOCK_MINUTES) + CLOCK_MINUTES) % CLOCK_MINUTES;
 
   int hour = clock_minutes / 60;
   int minute = clock_minutes % 60;
-  String clock_disp = String(hour) + ":" + String(minute);
-  //clock_disp = '%d:%02d' % (minutes // 60, minutes % 60)
+  String clock_disp = String(hour) + ":" + (minute < 10 ? "0" : "") + String(minute);
 
   int refRing;
   if (6 - abs(clock_hours - 6) < RADIAL_GAP - RADIAL_BUFFER) {
@@ -288,7 +297,7 @@ String playaCoords(float lat, float lon) {
   float refDelta = dist - ringRadius(refRing);
   unsigned long refDeltaRound = long(refDelta);
 
-  String ret = String(clock_disp) + " & " + getRefDisp(refRing) + String(refDelta >= 0 ? "+" : "-") + String(refDeltaRound);
+  String ret = clock_disp + " & " + getRefDisp(refRing) + (refDelta >= 0 ? "+" : "-") + String(refDeltaRound) + "m";
   return ret;
 }
 
