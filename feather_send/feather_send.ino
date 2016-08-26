@@ -211,7 +211,7 @@ void setFixTime() {
 // How far in from Esplanade to show distance relative to Esplanade rather than the man
 #define ESPLANADE_INNER_BUFFER (250 * .3048)  // m
 // Radial size on either side of 12 w/ no city streets
-#define RADIAL_GAP 2  // hours
+#define RADIAL_GAP 2.  // hours
 // How far radially from edge of city to show distance relative to city streets
 #define RADIAL_BUFFER .25  // hours
 
@@ -251,7 +251,7 @@ int getReferenceRing(float dist) {
 }
 
 String getRefDisp(int n) {
-  String s = "";
+  String s;
   if (n == 0) {
     s = ")(";
   } else if (n == 1) {
