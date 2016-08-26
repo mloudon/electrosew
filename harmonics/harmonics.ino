@@ -15,18 +15,19 @@ void setup() {
   strip.show(); // Initialize all pixels to 'off'
 }
 
-double cycle(double t, double period, double min, double max) {
+float cycle(float t, float period, float min, float max) {
   return .5*(min+max) - .5*(max-min) * cos(t / period * (2*3.14159));
 }
 
-double GAMMA = 1.8;
-int lum(double t, double period) {
+float GAMMA = 1.8;
+int lum(float t, float period) {
+  int MAXBRIGHT = 48;
   // Gamma correction is expensive. Disable it for longer strips or weaker microcontrollers.
-  return 255*pow(cycle(t, period, 0, 1), GAMMA);
+  return MAXBRIGHT*pow(cycle(t, period, 0, 1), GAMMA);
 }
 
 // One complete cycle every this many seconds.
-double CYCLE = 30;
+float CYCLE = 30;
 
 // Go through each possible permutation of R/G/B
 int channel_map[6][3] = {
@@ -48,7 +49,7 @@ int channel_map[6][3] = {
 // There are 12 total possibilities for assignment.
 
 void loop() {
-  double t = millis() / 1000.;
+  float t = millis() / 1000.;
 
   int round = (int)(t / CYCLE) % (2*6);
 
@@ -63,21 +64,21 @@ void loop() {
   // phase is one of the 6 different ways to permute RGB
   int phase = (round / 2);
 
-  for (int px = 0; px < strip.numPixels(); px++) {
+  for (int px = 0; px < STRAND_LENGTH; px++) {
     int vals[3];
     for (int ch = 0; ch < 3; ch++) {
       if (style == 0) {
-        vals[ch] = lum(t, CYCLE/(ch*strip.numPixels()+px+1));
+        vals[ch] = lum(t, CYCLE/(ch*STRAND_LENGTH+px+1));
       } else {
         vals[ch] = lum(t, CYCLE/(3*px+ch+1));
       }
     }
 
-    strip.setPixelColor(px, strip.Color(
+    strip.setPixelColor(px, 
        vals[channel_map[phase][0]],
        vals[channel_map[phase][1]],
        vals[channel_map[phase][2]]
-    ));
+    );
   }
   strip.show();
   delay(10);
