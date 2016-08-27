@@ -242,7 +242,30 @@ void say(String s, String t, String u, String v) {
   display.display();
 }
 
+// production
+#define MAN_LAT 40786400
+#define MAN_LON -119206500
+#define PLAYA_ELEV 1190.  // m
+#define SCALE 1.
+
+// testing
+/*
+#define MAN_LAT 40779625
+#define MAN_LON -73965394
+#define PLAYA_ELEV 0.  // m
+#define SCALE 6.
+*/
+
 void setFix () {
+  /*
+  TESTING MODE
+  myLat = MAN_LAT - 200*(1e-3*millis());
+  myLon = MAN_LON - 200*(1e-3*millis());
+  amIAccurate = true;
+  lastFix = millis();
+  return;
+  */
+  
   int32_t lat, lon;
   unsigned long age;
   gps.get_position(&lat, &lon, &age);
@@ -300,20 +323,6 @@ String fmtPlayaStr(int32_t lat, int32_t lon, bool accurate) {
 #define RADIAL_GAP 2.  // hours
 // How far radially from edge of city to show distance relative to city streets
 #define RADIAL_BUFFER .25  // hours
-
-// production
-/*
-#define MAN_LAT 40786400
-#define MAN_LON -119206500
-#define PLAYA_ELEV 1190.  // m
-#define SCALE 1.
-*/
-
-// testing
-#define MAN_LAT 40779625
-#define MAN_LON -73965394
-#define PLAYA_ELEV 0.  // m
-#define SCALE 6.
 
 // 0=man, 1=espl, 2=A, 3=B, ...
 float ringRadius(int n) {
@@ -386,11 +395,10 @@ String playaStr(int32_t lat, int32_t lon, bool accurate) {
   } else {
     refRing = getReferenceRing(dist);
   }
-
   float refDelta = dist - ringRadius(refRing);
-  unsigned long refDeltaRound = long(refDelta);
+  long refDeltaRounded = (long)(refDelta + .5);
 
-  return clock_disp + " & " + getRefDisp(refRing) + (refDelta >= 0 ? "+" : "-") + String(refDeltaRound) + "m" + (accurate ? "" : "-ish");
+  return clock_disp + " & " + getRefDisp(refRing) + (refDeltaRounded >= 0 ? "+" : "-") + String(refDeltaRounded < 0 ? -refDeltaRounded : refDeltaRounded) + "m" + (accurate ? "" : "-ish");
 }
 
 
