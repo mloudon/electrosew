@@ -30,16 +30,16 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 
 // timing
-#define UPDATE_INTERVAL 2000      // interval between updates
-unsigned long lastUpdate, lastSend; // last update of position
+#define TRANSMIT_INTERVAL 2000      // interval between sending updates
+#define DISPLAY_INTERVAL 300      // interval between updating display
+unsigned long lastSend, lastDisplay;
 
 // tinyGPS
 #include <TinyGPS.h>
 
 TinyGPS gps;
 
-void setup()
-{
+void setup() {
   pinMode(RFM95_RST, OUTPUT);
   digitalWrite(RFM95_RST, HIGH);
 
@@ -81,14 +81,12 @@ void setup()
 
   Serial.begin(9600);
   Serial1.begin(9600);
-
-  lastUpdate = millis();
-  lastSend = millis() + 1000;
 }
 
+#define MAGIC_NUMBER_LEN 3
+uint8_t MAGIC_NUMBER[MAGIC_NUMBER_LEN] = {0x11, 0x29, 0x83};
+
 //String timeStr = "";
-bool newData = false;
-bool newMsg = false;
 uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
 int lastRSSI;
 long last_recv = 0;
@@ -98,72 +96,68 @@ float myLon;
 float theirLat;
 float theirLon;
 
-void loop()
-{
-  if (Serial1.available())
-  {
+void processRecv() {
+  for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
+    if (MAGIC_NUMBER[i] != buf[i]) {
+      return;
+    }
+  }
+  uint8_t* data = buf + MAGIC_NUMBER_LEN;
+  theirLat = *((float*)data);
+  theirLon = *((float*)data + 1);
+  last_recv = millis();
+}
+
+void transmitData() {
+  uint8_t len = 2*sizeof(float) + MAGIC_NUMBER_LEN + 1;
+  uint8_t radiopacket[len];
+  for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
+    radiopacket[i] = MAGIC_NUMBER[i];
+  }
+  *((float*)(radiopacket + MAGIC_NUMBER_LEN)) = myLat;
+  *((float*)(radiopacket + MAGIC_NUMBER_LEN) + 1) = myLon;
+  radiopacket[len-1] = '\0';
+
+  rf95.send((uint8_t *)radiopacket, len);
+  rf95.waitPacketSent();
+}
+
+void loop() {
+  if (Serial1.available()) {
     char c = Serial1.read();
     Serial.write(c);
     if (gps.encode(c)) { // Did a new valid sentence come in?
-      newData = true;
+      attemptUpdateFix();
     }
   }
 
-  if (rf95.available())
-  {
+  if (rf95.available()) {
     uint8_t len = sizeof(buf);
-    if (rf95.recv(buf, &len))
-    {
-      newMsg = true;
+    if (rf95.recv(buf, &len)) {
       lastRSSI = rf95.lastRssi();
       digitalWrite(LED, HIGH);
       digitalWrite(LED, LOW);
+      processRecv();
     }
   }
 
-  if (lastUpdate > millis()) lastUpdate = millis();
-
-  if ((millis() - lastUpdate) > UPDATE_INTERVAL) // time to update
-  {
-    lastUpdate = millis();
-    attemptUpdateFix();
-
-    if (newMsg && strlen(buf) > 0)
-    {
-      theirLat = *((float*)buf);
-      theirLon = *((float*)buf + 1);
-      last_recv = millis();
-      updateDisplay();
-      newMsg = false;
-    }
-  }
-
-  if (lastSend > millis()) lastSend = millis();
-  if ((millis() - lastSend) > UPDATE_INTERVAL * 2 + 1000) // every second interval, lag by 1s
-  {
+  long sinceLastTransmit = millis() - lastSend;
+  if (sinceLastTransmit < 0 || sinceLastTransmit > TRANSMIT_INTERVAL) {
     lastSend = millis();
-    attemptUpdateFix();
-
-    uint8_t len = 2*sizeof(float) + 1;
-    char radiopacket[len];
-    *((float*)radiopacket) = myLat;
-    *((float*)radiopacket + 1) = myLon;
-    radiopacket[len-1] = '\0';
-    updateDisplay();
-    //say("Sending", timeStr, locStr);
-
-    rf95.send((uint8_t *)radiopacket, len);
-    rf95.waitPacketSent();
-
+    transmitData();
   }
+
+  long sinceLastDisplayUpdate = millis() - lastDisplay;
+  if (sinceLastDisplayUpdate < 0 || sinceLastDisplayUpdate > DISPLAY_INTERVAL) {
+    lastDisplay = millis();
+    updateDisplay();
+  }
+  
 }
 
 void attemptUpdateFix() {
-  if (newData) {
-    //setFixTime();
-    setFix();
-    newData = false;
-  }
+  //setFixTime();
+  setFix();
 }
 
 String fixAge() {
@@ -218,14 +212,11 @@ void setFix () {
 }
 
 String fmtPlayaStr(float lat, float lon) {
-  String ps;
   if (lat == 0.0 && lon == 0.0) {
-    ps = "404 cosmos not found";
+    return "404 cosmos not found";
   } else {
-    ps = playaStr(lat, lon);
+    return playaStr(lat, lon);
   }
-  Serial.println(ps);
-  return ps;
 }
 
 //void setFixTime() {
