@@ -32,6 +32,11 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 unsigned long lastSend, lastDisplay, lastFix, lastRecv;
 bool sending = false;
 
+// 95% error radius at HDOP=1
+#define GPS_BASE_ACCURACY 6.2  // m
+
+#define ACCURACY_THRESHOLD 30  // m
+
 // tinyGPS
 #include <TinyGPS.h>
 
@@ -92,9 +97,12 @@ int lastRSSI;
 int32_t myLat;
 int32_t myLon;
 float myElev;  // unused
+float myHAcc;
+bool amIAccurate;
 int32_t theirLat;
 int32_t theirLon;
 float theirElev;  // unused
+bool areTheyAccurate;
 
 void processRecv() {
   for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
@@ -102,9 +110,12 @@ void processRecv() {
       return;
     }
   }
-  uint8_t* data = buf + MAGIC_NUMBER_LEN;
-  theirLat = *((int32_t*)data);
-  theirLon = *((int32_t*)data + 1);
+  void* p = buf + MAGIC_NUMBER_LEN;
+  theirLat = *(int32_t*)p;
+  p = (int32_t*)p + 1;
+  theirLon = *(int32_t*)p;
+  p = (int32_t*)p + 1;
+  areTheyAccurate = *(uint8_t*)p;
   lastRecv = millis();
 }
 
@@ -115,13 +126,17 @@ void transmitData() {
     return;
   }
   
-  uint8_t len = 2*sizeof(int32_t) + MAGIC_NUMBER_LEN + 1;
+  uint8_t len = 2*sizeof(int32_t) + sizeof(uint8_t) + MAGIC_NUMBER_LEN + 1;
   uint8_t radiopacket[len];
   for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
     radiopacket[i] = MAGIC_NUMBER[i];
   }
-  *((int32_t*)(radiopacket + MAGIC_NUMBER_LEN)) = myLat;
-  *((int32_t*)(radiopacket + MAGIC_NUMBER_LEN) + 1) = myLon;
+  void* p = radiopacket + MAGIC_NUMBER_LEN;
+  *(int32_t*)p = myLat;
+  p = (int32_t*)p + 1;
+  *(int32_t*)p = myLon;
+  p = (int32_t*)p + 1;
+  *(uint8_t*)p = amIAccurate;
   radiopacket[len-1] = '\0';
 
   sending = true;
@@ -191,10 +206,10 @@ void updateDisplay() {
   display.setTextSize(1);
   display.setTextColor(WHITE);
   display.setCursor(0, 0);
-  display.println(fmtPlayaStr(theirLat, theirLon));
+  display.println(fmtPlayaStr(theirLat, theirLon, areTheyAccurate));
   display.println(fixAge());
   display.println();
-  display.println(fmtPlayaStr(myLat, myLon));
+  display.println(fmtPlayaStr(myLat, myLon, amIAccurate));
   display.setCursor(60, 8);
   display.println(String(lastRSSI) + "db");
 
@@ -207,7 +222,7 @@ void updateDisplay() {
   } else if (sending || (sinceLastSend >= 0 && sinceLastSend < 400)) {
     fixStatus = ".";
   }
-  display.setCursor(100, 24);
+  display.setCursor(120, 24);
   display.println(fixStatus);
 
   display.display();
@@ -243,13 +258,20 @@ void setFix () {
   //Serial.println(String(flat, 6) + " " + String(flon, 6));
   myLat = lat;
   myLon = lon;
+
+  if (gps.hdop() == TinyGPS::GPS_INVALID_HDOP) {
+    myHAcc = -1;
+  } else {
+    myHAcc = 1e-2*gps.hdop() * GPS_BASE_ACCURACY;
+  }
+  amIAccurate = (myHAcc > 0 && myHAcc <= ACCURACY_THRESHOLD);
 }
 
-String fmtPlayaStr(int32_t lat, int32_t lon) {
+String fmtPlayaStr(int32_t lat, int32_t lon, bool accurate) {
   if (lat == 0 && lon == 0) {
     return "404 cosmos not found";
   } else {
-    return playaStr(lat, lon);
+    return playaStr(lat, lon, accurate);
   }
 }
 
@@ -338,7 +360,7 @@ String getRefDisp(int n) {
   }
 }
 
-String playaStr(int32_t lat, int32_t lon) {
+String playaStr(int32_t lat, int32_t lon, bool accurate) {
   // Safe conversion to float w/o precision loss.
   float dlat = 1e-6 * (lat - MAN_LAT);
   float dlon = 1e-6 * (lon - MAN_LON);
@@ -368,7 +390,7 @@ String playaStr(int32_t lat, int32_t lon) {
   float refDelta = dist - ringRadius(refRing);
   unsigned long refDeltaRound = long(refDelta);
 
-  return clock_disp + " & " + getRefDisp(refRing) + (refDelta >= 0 ? "+" : "-") + String(refDeltaRound) + "m";
+  return clock_disp + " & " + getRefDisp(refRing) + (refDelta >= 0 ? "+" : "-") + String(refDeltaRound) + "m" + (accurate ? "" : "-ish");
 }
 
 
