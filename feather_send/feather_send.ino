@@ -26,7 +26,7 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 
 // timing
-#define TRANSMIT_INTERVAL 2000      // interval between sending updates
+#define TRANSMIT_INTERVAL 10000      // interval between sending updates
 #define DISPLAY_INTERVAL 150      // interval between updating display
 #define MAX_FIX_AGE 5000   // Ignore data from GPS if older than this
 unsigned long lastSend, lastDisplay, lastFix, lastRecv;
