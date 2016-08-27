@@ -28,9 +28,8 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 // timing
 #define TRANSMIT_INTERVAL 2000      // interval between sending updates
 #define DISPLAY_INTERVAL 300      // interval between updating display
-unsigned long lastSend, lastDisplay, lastFix, lastRecv;
-
 #define MAX_FIX_AGE 5000   // Ignore data from GPS if older than this
+unsigned long lastSend, lastDisplay, lastFix, lastRecv;
 
 // tinyGPS
 #include <TinyGPS.h>
@@ -77,22 +76,23 @@ void setup() {
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(23, false);
 
-  //Serial.begin(9600);
+  Serial.begin(9600);
   Serial1.begin(9600);
 }
 
-#define MAGIC_NUMBER_LEN 3
-uint8_t MAGIC_NUMBER[MAGIC_NUMBER_LEN] = {0x11, 0x29, 0x83};
+#define MAGIC_NUMBER_LEN 2
+uint8_t MAGIC_NUMBER[MAGIC_NUMBER_LEN] = {0x02, 0xcb};
 
 //String timeStr = "";
 uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
 int lastRSSI;
 
-float myLat;
-float myLon;
+// lat/lon are stored as signed 32-bit ints as millionths of a degree (-123.45678 => -123,456,780)
+int32_t myLat;
+int32_t myLon;
 float myElev;  // unused
-float theirLat;
-float theirLon;
+int32_t theirLat;
+int32_t theirLon;
 float theirElev;  // unused
 
 void processRecv() {
@@ -102,8 +102,8 @@ void processRecv() {
     }
   }
   uint8_t* data = buf + MAGIC_NUMBER_LEN;
-  theirLat = *((float*)data);
-  theirLon = *((float*)data + 1);
+  theirLat = *((int32_t*)data);
+  theirLon = *((int32_t*)data + 1);
   lastRecv = millis();
 }
 
@@ -114,13 +114,13 @@ void transmitData() {
     return;
   }
   
-  uint8_t len = 2*sizeof(float) + MAGIC_NUMBER_LEN + 1;
+  uint8_t len = 2*sizeof(int32_t) + MAGIC_NUMBER_LEN + 1;
   uint8_t radiopacket[len];
   for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
     radiopacket[i] = MAGIC_NUMBER[i];
   }
-  *((float*)(radiopacket + MAGIC_NUMBER_LEN)) = myLat;
-  *((float*)(radiopacket + MAGIC_NUMBER_LEN) + 1) = myLon;
+  *((int32_t*)(radiopacket + MAGIC_NUMBER_LEN)) = myLat;
+  *((int32_t*)(radiopacket + MAGIC_NUMBER_LEN) + 1) = myLon;
   radiopacket[len-1] = '\0';
 
   rf95.send((uint8_t *)radiopacket, len);
@@ -221,27 +221,25 @@ void say(String s, String t, String u, String v) {
 }
 
 void setFix () {
-  float flat, flon;
+  int32_t lat, lon;
   unsigned long age;
-  gps.f_get_position(&flat, &flon, &age);
+  gps.get_position(&lat, &lon, &age);
   if (age == TinyGPS::GPS_INVALID_AGE) {
     return;
   }
   lastFix = millis() - age;
 
-  if (flat == TinyGPS::GPS_INVALID_F_ANGLE) {
-    flat = 0.0;
-  }
-  if (flon == TinyGPS::GPS_INVALID_F_ANGLE) {
-    flon = 0.0;
+  if (lat == TinyGPS::GPS_INVALID_ANGLE || lon == TinyGPS::GPS_INVALID_ANGLE) {
+    lat = 0;
+    lon = 0;
   }
   //Serial.println(String(flat, 6) + " " + String(flon, 6));
-  myLat = flat;
-  myLon = flon;
+  myLat = lat;
+  myLon = lon;
 }
 
-String fmtPlayaStr(float lat, float lon) {
-  if (lat == 0.0 && lon == 0.0) {
+String fmtPlayaStr(int32_t lat, int32_t lon) {
+  if (lat == 0 && lon == 0) {
     return "404 cosmos not found";
   } else {
     return playaStr(lat, lon);
@@ -275,14 +273,16 @@ String fmtPlayaStr(float lat, float lon) {
 #define RADIAL_BUFFER .25  // hours
 
 // production
-//#define MAN_LAT 40.7864
-//#define MAN_LON -119.2065
-//#define PLAYA_ELEV 1190.  // m
-//#define SCALE 1.
+/*
+#define MAN_LAT 40786400
+#define MAN_LON -119206500
+#define PLAYA_ELEV 1190.  // m
+#define SCALE 1.
+*/
 
 // testing
-#define MAN_LAT 40.779625
-#define MAN_LON -73.965394
+#define MAN_LAT 40779625
+#define MAN_LON -73965394
 #define PLAYA_ELEV 0.  // m
 #define SCALE 6.
 
@@ -331,12 +331,13 @@ String getRefDisp(int n) {
   }
 }
 
-String playaStr(float lat, float lon) {
-  // Precision issues-- float for GPS only gives about ~5m resolution. Arduino doubles are
-  // fake -- same precision as floats.
-  // If we could get lat/lon in fixed-point (say degrees * 1e5), we could preserve precision.
-  float m_dx = (lon - MAN_LON) * cos(MAN_LAT / DEG_PER_RAD) * METERS_PER_DEGREE;
-  float m_dy = (lat - MAN_LAT) * METERS_PER_DEGREE;
+String playaStr(int32_t lat, int32_t lon) {
+  // Safe conversion to float w/o precision loss.
+  float dlat = 1e-6 * (lat - MAN_LAT);
+  float dlon = 1e-6 * (lon - MAN_LON);
+  
+  float m_dx = dlon * METERS_PER_DEGREE * cos(1e-6*MAN_LAT / DEG_PER_RAD);
+  float m_dy = dlat * METERS_PER_DEGREE;
 
   float dist = SCALE * sqrt(m_dx * m_dx + m_dy * m_dy);
   float bearing = DEG_PER_RAD * atan2(m_dx, m_dy);
