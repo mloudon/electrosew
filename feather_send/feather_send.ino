@@ -27,9 +27,10 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // timing
 #define TRANSMIT_INTERVAL 2000      // interval between sending updates
-#define DISPLAY_INTERVAL 300      // interval between updating display
+#define DISPLAY_INTERVAL 150      // interval between updating display
 #define MAX_FIX_AGE 5000   // Ignore data from GPS if older than this
 unsigned long lastSend, lastDisplay, lastFix, lastRecv;
+bool sending = false;
 
 // tinyGPS
 #include <TinyGPS.h>
@@ -123,8 +124,11 @@ void transmitData() {
   *((int32_t*)(radiopacket + MAGIC_NUMBER_LEN) + 1) = myLon;
   radiopacket[len-1] = '\0';
 
+  sending = true;
   rf95.send((uint8_t *)radiopacket, len);
   rf95.waitPacketSent();
+  sending = false;
+  lastSend = millis();
 }
 
 void loop() {
@@ -148,13 +152,11 @@ void loop() {
 
   long sinceLastTransmit = millis() - lastSend;
   if (sinceLastTransmit < 0 || sinceLastTransmit > TRANSMIT_INTERVAL) {
-    lastSend = millis();
     transmitData();
   }
 
   long sinceLastDisplayUpdate = millis() - lastDisplay;
   if (sinceLastDisplayUpdate < 0 || sinceLastDisplayUpdate > DISPLAY_INTERVAL) {
-    lastDisplay = millis();
     updateDisplay();
   }
   
@@ -198,14 +200,19 @@ void updateDisplay() {
 
   String fixStatus = "";
   long sinceLastFix = millis() - lastFix;
+  long sinceLastSend = millis() - lastSend;
   if (sinceLastFix > MAX_FIX_AGE) {
     // GPS data is stale
     fixStatus = "!";
+  } else if (sending || (sinceLastSend >= 0 && sinceLastSend < 400)) {
+    fixStatus = ".";
   }
   display.setCursor(100, 24);
   display.println(fixStatus);
 
   display.display();
+
+  lastDisplay = millis();
 }
 
 void say(String s, String t, String u, String v) {
