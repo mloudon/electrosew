@@ -93,8 +93,10 @@ long last_recv = 0;
 
 float myLat;
 float myLon;
+float myElev;  // unused
 float theirLat;
 float theirLon;
+float theirElev;  // unused
 
 void processRecv() {
   for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
@@ -180,7 +182,17 @@ String fixAge() {
 }
 
 void updateDisplay() {
-  say(fmtPlayaStr(theirLat, theirLon), fixAge() + "  (" + String(lastRSSI) + "db)", "", fmtPlayaStr(myLat, myLon));
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println(fmtPlayaStr(theirLat, theirLon));
+  display.println(fixAge());
+  display.println();
+  display.println(fmtPlayaStr(myLat, myLon));
+  display.setCursor(60, 8);
+  display.println(String(lastRSSI) + "db");
+  display.display();
 }
 
 void say(String s, String t, String u, String v) {
@@ -248,11 +260,13 @@ String fmtPlayaStr(float lat, float lon) {
 // production
 //#define MAN_LAT 40.7864
 //#define MAN_LON -119.2065
+//#define PLAYA_ELEV 1190.  // m
 //#define SCALE 1.
 
 // testing
 #define MAN_LAT 40.779625
 #define MAN_LON -73.965394
+#define PLAYA_ELEV 0.  // m
 #define SCALE 6.
 
 // 0=man, 1=espl, 2=A, 3=B, ...
