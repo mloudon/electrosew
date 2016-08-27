@@ -4,12 +4,8 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <Adafruit_FeatherOLED.h>
 
-Adafruit_FeatherOLED oled = Adafruit_FeatherOLED();
-
-#define OLED_RESET 4
-Adafruit_SSD1306 display(OLED_RESET);
+Adafruit_SSD1306 display = Adafruit_SSD1306();
 
 #define Apin 9
 #define Bpin 6
@@ -32,7 +28,9 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 // timing
 #define TRANSMIT_INTERVAL 2000      // interval between sending updates
 #define DISPLAY_INTERVAL 300      // interval between updating display
-unsigned long lastSend, lastDisplay;
+unsigned long lastSend, lastDisplay, lastFix, lastRecv;
+
+#define MAX_FIX_AGE 5000   // Ignore data from GPS if older than this
 
 // tinyGPS
 #include <TinyGPS.h>
@@ -51,7 +49,7 @@ void setup() {
 
   // by default, we'll generate the high voltage from the 3.3v line internally! (neat!)
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
-  say("hello", "there", "feather", "");
+  say("hello.", "", "", "");
   delay(3000);
   display.clearDisplay();
 
@@ -79,7 +77,7 @@ void setup() {
   // you can set transmitter powers from 5 to 23 dBm:
   rf95.setTxPower(23, false);
 
-  Serial.begin(9600);
+  //Serial.begin(9600);
   Serial1.begin(9600);
 }
 
@@ -89,7 +87,6 @@ uint8_t MAGIC_NUMBER[MAGIC_NUMBER_LEN] = {0x11, 0x29, 0x83};
 //String timeStr = "";
 uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
 int lastRSSI;
-long last_recv = 0;
 
 float myLat;
 float myLon;
@@ -107,10 +104,16 @@ void processRecv() {
   uint8_t* data = buf + MAGIC_NUMBER_LEN;
   theirLat = *((float*)data);
   theirLon = *((float*)data + 1);
-  last_recv = millis();
+  lastRecv = millis();
 }
 
 void transmitData() {
+  long sinceLastFix = millis() - lastFix;
+  if (sinceLastFix > MAX_FIX_AGE) {
+    // GPS data is stale
+    return;
+  }
+  
   uint8_t len = 2*sizeof(float) + MAGIC_NUMBER_LEN + 1;
   uint8_t radiopacket[len];
   for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
@@ -127,7 +130,7 @@ void transmitData() {
 void loop() {
   if (Serial1.available()) {
     char c = Serial1.read();
-    Serial.write(c);
+    //Serial.write(c);
     if (gps.encode(c)) { // Did a new valid sentence come in?
       attemptUpdateFix();
     }
@@ -163,7 +166,7 @@ void attemptUpdateFix() {
 }
 
 String fixAge() {
-  long elapsed = (millis() - last_recv) / 1000;
+  long elapsed = (millis() - lastRecv) / 1000;
   int n;
   char unit;
   if (elapsed < 2) {
@@ -192,6 +195,16 @@ void updateDisplay() {
   display.println(fmtPlayaStr(myLat, myLon));
   display.setCursor(60, 8);
   display.println(String(lastRSSI) + "db");
+
+  String fixStatus = "";
+  long sinceLastFix = millis() - lastFix;
+  if (sinceLastFix > MAX_FIX_AGE) {
+    // GPS data is stale
+    fixStatus = "!";
+  }
+  display.setCursor(100, 24);
+  display.println(fixStatus);
+
   display.display();
 }
 
@@ -211,6 +224,10 @@ void setFix () {
   float flat, flon;
   unsigned long age;
   gps.f_get_position(&flat, &flon, &age);
+  if (age == TinyGPS::GPS_INVALID_AGE) {
+    return;
+  }
+  lastFix = millis() - age;
 
   if (flat == TinyGPS::GPS_INVALID_F_ANGLE) {
     flat = 0.0;
@@ -218,7 +235,7 @@ void setFix () {
   if (flon == TinyGPS::GPS_INVALID_F_ANGLE) {
     flon = 0.0;
   }
-  Serial.println(String(flat, 6) + " " + String(flon, 6));
+  //Serial.println(String(flat, 6) + " " + String(flon, 6));
   myLat = flat;
   myLon = flon;
 }
