@@ -1,11 +1,3 @@
-// Feather9x_TX
-// -*- mode: C++ -*-
-// Example sketch showing how to create a simple messaging client (transmitter)
-// with the RH_RF95 class. RH_RF95 class does not provide for addressing or
-// reliability, so you should only use RH_RF95 if you do not need the higher
-// level messaging abilities.
-// It is designed to work with the other example Feather9x_RX
-
 #include <SPI.h>
 #include <RH_RF95.h>
 
@@ -59,6 +51,8 @@ void setup()
 
   // by default, we'll generate the high voltage from the 3.3v line internally! (neat!)
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
+  say("hello", "there", "feather", "");
+  delay(3000);
   display.clearDisplay();
 
   // manual reset
@@ -68,13 +62,13 @@ void setup()
   delay(10);
 
   while (!rf95.init()) {
-    say("LoRa radio init failed", "", "");
+    say("LoRa radio init failed", "", "", "");
     while (1);
   }
 
   // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
   if (!rf95.setFrequency(RF95_FREQ)) {
-    say("setFrequency failed", "", "");
+    say("setFrequency failed", "", "", "");
     while (1);
   }
 
@@ -92,20 +86,24 @@ void setup()
   lastSend = millis() + 1000;
 }
 
-String timeStr = "";
-String locStr = "";
-String playaStr = ")( & nth hyperplane";
+//String timeStr = "";
 bool newData = false;
 bool newMsg = false;
 uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
-String lastRSSI;
+int lastRSSI;
+long last_recv = 0;
+
+float myLat;
+float myLon;
+float theirLat;
+float theirLon;
 
 void loop()
 {
   if (Serial1.available())
   {
     char c = Serial1.read();
-    //Serial.write(c);
+    Serial.write(c);
     if (gps.encode(c)) { // Did a new valid sentence come in?
       newData = true;
     }
@@ -117,7 +115,7 @@ void loop()
     if (rf95.recv(buf, &len))
     {
       newMsg = true;
-      lastRSSI = String(rf95.lastRssi());
+      lastRSSI = rf95.lastRssi();
       digitalWrite(LED, HIGH);
       digitalWrite(LED, LOW);
     }
@@ -130,9 +128,12 @@ void loop()
     lastUpdate = millis();
     attemptUpdateFix();
 
-    if (newMsg)
+    if (newMsg && strlen(buf) > 0)
     {
-      say(String((char*)buf), "RSSI: " + lastRSSI, locStr);
+      theirLat = *((float*)buf);
+      theirLon = *((float*)buf + 1);
+      last_recv = millis();
+      updateDisplay();
       newMsg = false;
     }
   }
@@ -142,26 +143,53 @@ void loop()
   {
     lastSend = millis();
     attemptUpdateFix();
-    uint8_t len = playaStr.length() + 1;
+
+    uint8_t len = 2*sizeof(float) + 1;
     char radiopacket[len];
-    playaStr.toCharArray(radiopacket, len) ;
-    say("Sending", timeStr, locStr);
+    *((float*)radiopacket) = myLat;
+    *((float*)radiopacket + 1) = myLon;
+    radiopacket[len-1] = '\0';
+    updateDisplay();
+    //say("Sending", timeStr, locStr);
 
     rf95.send((uint8_t *)radiopacket, len);
     rf95.waitPacketSent();
+
   }
 }
 
 void attemptUpdateFix() {
   if (newData) {
-    setFixTime();
+    //setFixTime();
     setFix();
     newData = false;
   }
-
 }
 
-void say(String s, String t, String u) {
+String fixAge() {
+  long elapsed = (millis() - last_recv) / 1000;
+  int n;
+  char unit;
+  if (elapsed < 2) {
+    return "now";
+  } else if (elapsed < 60) {
+    n = elapsed;
+    unit = 's';
+  } else if (elapsed < 3600) {
+    n = elapsed / 60;
+    unit = 'm';
+  } else {
+    n = elapsed / 3600;
+    unit = 'h';
+  }
+  return String(n) + String(unit) + " ago";
+}
+
+void updateDisplay() {
+  say(fmtPlayaStr(theirLat, theirLon), fixAge() + "  (" + String(lastRSSI) + "db)", "", fmtPlayaStr(myLat, myLon));
+}
+
+void say(String s, String t, String u, String v) {
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(WHITE);
@@ -169,6 +197,7 @@ void say(String s, String t, String u) {
   display.println(s);
   display.println(t);
   display.println(u);
+  display.println(v);
   display.display();
 }
 
@@ -177,23 +206,35 @@ void setFix () {
   unsigned long age;
   gps.f_get_position(&flat, &flon, &age);
 
-  locStr =  String(flat == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flat, 6) + " " + String(flon == TinyGPS::GPS_INVALID_F_ANGLE ? 0.0 : flon, 6);
-  Serial.println(locStr);
-  if (flat == TinyGPS::GPS_INVALID_F_ANGLE || flon == TinyGPS::GPS_INVALID_F_ANGLE) {
-    playaStr = "404 cosmos not found";
-  } else {
-    playaStr = playaCoords(flat, flon);
+  if (flat == TinyGPS::GPS_INVALID_F_ANGLE) {
+    flat = 0.0;
   }
-  Serial.println(playaStr);
+  if (flon == TinyGPS::GPS_INVALID_F_ANGLE) {
+    flon = 0.0;
+  }
+  Serial.println(String(flat, 6) + " " + String(flon, 6));
+  myLat = flat;
+  myLon = flon;
 }
 
-void setFixTime() {
-  int year;
-  byte month, day, hour, minute, second, hundredths;
-  unsigned long age;
-  gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
-  timeStr =  String(hour) + ":" + String(minute) + ":" +  String(second) + "/" + String(age) + "ms";
+String fmtPlayaStr(float lat, float lon) {
+  String ps;
+  if (lat == 0.0 && lon == 0.0) {
+    ps = "404 cosmos not found";
+  } else {
+    ps = playaStr(lat, lon);
+  }
+  Serial.println(ps);
+  return ps;
 }
+
+//void setFixTime() {
+//  int year;
+//  byte month, day, hour, minute, second, hundredths;
+//  unsigned long age;
+//  gps.crack_datetime(&year, &month, &day, &hour, &minute, &second, &hundredths, &age);
+//  timeStr =  String(hour) + ":" + String(minute) + ":" +  String(second) + "/" + String(age) + "ms";
+//}
 
 ///// PLAYA COORDINATES CODE /////
 
@@ -221,7 +262,7 @@ void setFixTime() {
 // testing
 #define MAN_LAT 40.779625
 #define MAN_LON -73.965394
-#define SCALE .166
+#define SCALE 6.
 
 // 0=man, 1=espl, 2=A, 3=B, ...
 float ringRadius(int n) {
@@ -268,7 +309,7 @@ String getRefDisp(int n) {
   }
 }
 
-String playaCoords(float lat, float lon) {
+String playaStr(float lat, float lon) {
   // Precision issues-- float for GPS only gives about ~5m resolution. Arduino doubles are
   // fake -- same precision as floats.
   // If we could get lat/lon in fixed-point (say degrees * 1e5), we could preserve precision.
@@ -297,8 +338,7 @@ String playaCoords(float lat, float lon) {
   float refDelta = dist - ringRadius(refRing);
   unsigned long refDeltaRound = long(refDelta);
 
-  String ret = clock_disp + " & " + getRefDisp(refRing) + (refDelta >= 0 ? "+" : "-") + String(refDeltaRound) + "m";
-  return ret;
+  return clock_disp + " & " + getRefDisp(refRing) + (refDelta >= 0 ? "+" : "-") + String(refDeltaRound) + "m";
 }
 
 
