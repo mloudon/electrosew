@@ -125,8 +125,8 @@ void transmitData() {
     // GPS data is stale
     return;
   }
-  
-  uint8_t len = 2*sizeof(int32_t) + sizeof(uint8_t) + MAGIC_NUMBER_LEN + 1;
+
+  uint8_t len = 2 * sizeof(int32_t) + sizeof(uint8_t) + MAGIC_NUMBER_LEN + 1;
   uint8_t radiopacket[len];
   for (int i = 0; i < MAGIC_NUMBER_LEN; i++) {
     radiopacket[i] = MAGIC_NUMBER[i];
@@ -137,7 +137,7 @@ void transmitData() {
   *(int32_t*)p = myLon;
   p = (int32_t*)p + 1;
   *(uint8_t*)p = amIAccurate;
-  radiopacket[len-1] = '\0';
+  radiopacket[len - 1] = '\0';
 
   sending = true;
   rf95.send((uint8_t *)radiopacket, len);
@@ -174,7 +174,7 @@ void loop() {
   if (sinceLastDisplayUpdate < 0 || sinceLastDisplayUpdate > DISPLAY_INTERVAL) {
     updateDisplay();
   }
-  
+
 }
 
 void attemptUpdateFix() {
@@ -250,22 +250,22 @@ void say(String s, String t, String u, String v) {
 
 // testing
 /*
-#define MAN_LAT 40779625
-#define MAN_LON -73965394
-#define PLAYA_ELEV 0.  // m
-#define SCALE 6.
+  #define MAN_LAT 40779625
+  #define MAN_LON -73965394
+  #define PLAYA_ELEV 0.  // m
+  #define SCALE 6.
 */
 
 void setFix () {
   /*
-  TESTING MODE
-  myLat = MAN_LAT - 200*(1e-3*millis());
-  myLon = MAN_LON - 200*(1e-3*millis());
-  amIAccurate = true;
-  lastFix = millis();
-  return;
+    TESTING MODE
+    myLat = MAN_LAT - 200*(1e-3*millis());
+    myLon = MAN_LON - 200*(1e-3*millis());
+    amIAccurate = true;
+    lastFix = millis();
+    return;
   */
-  
+
   int32_t lat, lon;
   unsigned long age;
   gps.get_position(&lat, &lon, &age);
@@ -278,14 +278,14 @@ void setFix () {
     lat = 0;
     lon = 0;
   }
-  //Serial.println(String(flat, 6) + " " + String(flon, 6));
+//  Serial.println(String(flat, 6) + " " + String(flon, 6));
   myLat = lat;
   myLon = lon;
 
   if (gps.hdop() == TinyGPS::GPS_INVALID_HDOP) {
     myHAcc = -1;
   } else {
-    myHAcc = 1e-2*gps.hdop() * GPS_BASE_ACCURACY;
+    myHAcc = 1e-2 * gps.hdop() * GPS_BASE_ACCURACY;
   }
   amIAccurate = (myHAcc > 0 && myHAcc <= ACCURACY_THRESHOLD);
 }
@@ -352,7 +352,9 @@ float ringInnerBuffer(int n) {
 
 int getReferenceRing(float dist) {
   for (int n = NUM_RINGS; n > 0; n--) {
+    Serial.println(n + ":" + String(ringRadius(n)) + " " + String(ringInnerBuffer(n)));
     if (ringRadius(n) - ringInnerBuffer(n) <= dist) {
+
       return n;
     }
   }
@@ -373,8 +375,8 @@ String playaStr(int32_t lat, int32_t lon, bool accurate) {
   // Safe conversion to float w/o precision loss.
   float dlat = 1e-6 * (lat - MAN_LAT);
   float dlon = 1e-6 * (lon - MAN_LON);
-  
-  float m_dx = dlon * METERS_PER_DEGREE * cos(1e-6*MAN_LAT / DEG_PER_RAD);
+
+  float m_dx = dlon * METERS_PER_DEGREE * cos(1e-6 * MAN_LAT / DEG_PER_RAD);
   float m_dy = dlat * METERS_PER_DEGREE;
 
   float dist = SCALE * sqrt(m_dx * m_dx + m_dy * m_dy);
@@ -390,7 +392,7 @@ String playaStr(int32_t lat, int32_t lon, bool accurate) {
   String clock_disp = String(hour) + ":" + (minute < 10 ? "0" : "") + String(minute);
 
   int refRing;
-  if (6 - abs(clock_hours - 6) < RADIAL_GAP - RADIAL_BUFFER) {
+  if (6 - abs(clock_minutes/60. - 6) < RADIAL_GAP - RADIAL_BUFFER) {
     refRing = 0;
   } else {
     refRing = getReferenceRing(dist);
