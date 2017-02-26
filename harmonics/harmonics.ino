@@ -3,85 +3,116 @@
 #include <avr/power.h>
 #endif
 
-#define PIN 6
+/*
+ * Harmonic cycling color pattern.
+ * 
+ * Each color channel of each pixel is assigned a harmonic frequency from 1 to N. The first
+ * frequency cycles once per cycle, the next 2x per cylce, and then 3x, 4x, 5x, etc. Pixel
+ * channels move in and out of phase, with different sub-harmonics visible as the cycle
+ * progresses. Everything syncs up at the end of a complete cycle.
+ * 
+ * Each cycle also varies the style/ordering in which the harmonics are assigned to individual
+ * pixels/channels (12 such total variations).
+ */
 
-#define STRAND_LENGTH 9
+#define DATA_PIN 6
+#define FRAME_STEP 10  // ms
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRAND_LENGTH, PIN, NEO_GRB + NEO_KHZ800);
+// Number of pixels. Total number of harmonics is 3 (R/G/B) * #pixels. A cycle completes when all harmonics go back in sync.
+// Note: the integer nature of the harmonics is critical to the effect.
+const int STRIP_LENGTH = 60;
+
+// Duration of cycle for a strip of 'baseline' pixels. Actual cycle length is changed accordingly with
+// actual number of pixels in strip.
+const float BASELINE_CYCLE_LENGTH = 30.;  // s
+const int BASELINE_STRIP_LENGTH = 9;
+
+const int MAX_BRIGHTNESS = 48;  // max 256; don't set too high or arduino gets stressed and can't be easily reflashed
+const bool USE_GAMMA_CORRECTION = false;  // more linear brightness in color ramp, but expensive. disable if framerate is too low on long strips
+const float GAMMA = 1.8;
+
+// Every channel of every pixel must be assigned a harmonic frequency of [1, 3*#pixels]
+enum interleaving {
+  // Assign the harmonics in order for all the pixels of a single channel before moving on to the next
+  // channel. This is the conventional harmonic pattern.
+  channel,
+  // Assign the harmonics in order for all the channels of a pixel before moving on to the next pixel.
+  // This creates an 'ants marching'-type look and is kind of an 'inside out' view of the previous mode.
+  // May not look good if there are too many pixels. 
+  pixel
+};
+const int num_enabled_interleave_modes = 2;
+interleaving interleave_modes[num_enabled_interleave_modes] = {channel, pixel};
+
+// don't modify
+#define PI 3.14159
+#define NUM_CHANNELS 3  // R, G, B
+const float CYCLE_LENGTH = BASELINE_CYCLE_LENGTH * STRIP_LENGTH / BASELINE_STRIP_LENGTH;
+/////////////
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRIP_LENGTH, DATA_PIN, NEO_GRB + NEO_KHZ800);
 
 void setup() {
-  //strip.setBrightness(32);
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
 }
 
 float cycle(float t, float period, float min, float max) {
-  return .5*(min+max) - .5*(max-min) * cos(t / period * (2*3.14159));
+  return .5*(min+max) - .5*(max-min) * cos(t / period * (2*PI));
 }
 
-float GAMMA = 1.8;
 int lum(float t, float period) {
-  int MAXBRIGHT = 48;
-  // Gamma correction is expensive. Disable it for longer strips or weaker microcontrollers.
-  return MAXBRIGHT*pow(cycle(t, period, 0, 1), GAMMA);
+  float k = cycle(t, period, 0, 1);
+  return MAX_BRIGHTNESS * (USE_GAMMA_CORRECTION ? pow(k, GAMMA) : k);
 }
 
-// One complete cycle every this many seconds.
-float CYCLE = 30;
-
-// Go through each possible permutation of R/G/B
-int channel_map[6][3] = {
+// All the ways to permute the R/G/B color channels.
+#define NUM_CHANNEL_PERMUTATIONS 6
+int channel_permutations[NUM_CHANNEL_PERMUTATIONS][NUM_CHANNELS] = {
   {0, 1, 2},
   {0, 2, 1},
   {1, 0, 2},
   {1, 2, 0},
   {2, 0, 1},
-  {2, 1, 0}  
+  {2, 1, 0}
 };
-
-// Assign each color channel of each pixel a different harmonic frequency. The
-// first cycles once per 'CYCLE' time. The 2nd twice per cycle. Then 3x, 4x, 5x,
-// etc. The pixle channels move in and out of phase with different harmonics
-// visible as the cycle progresses. Everything syncs up at the end of a complete
-// cycle.
-
-// After each cycle the assignment of frequencies to pixels/channels changes.
-// There are 12 total possibilities for assignment.
 
 void loop() {
   float t = millis() / 1000.;
 
-  int round = (int)(t / CYCLE) % (2*6);
+  // Number of full cycles completed.
+  int cycle_count = (int)(t / CYCLE_LENGTH);
+  // Convert the current cycle number into the appropriate interleaving and permutation modes.
+  interleaving interleave_mode = interleave_modes[cycle_count % num_enabled_interleave_modes];
+  int* channel_permutation = channel_permutations[(cycle_count / num_enabled_interleave_modes) % NUM_CHANNEL_PERMUTATIONS];
 
-  // style is the order in which frequencies are assigned:
-  // 0: iterate over pixels first, then iterate over the channel (i.e., assign
-  //    px0 R, px1 R, px2 R... , px0 G, px1 G, ...
-  // 1: iterate over the channels, then the pixel, i.e., px0 R, px0 G, px0 B,
-  //    px1 R, px1 G, px1 B...
-  // The actual order of R->G->B will change each cycle.
-  int style = round % 2;
-
-  // phase is one of the 6 different ways to permute RGB
-  int phase = (round / 2);
-
-  for (int px = 0; px < STRAND_LENGTH; px++) {
-    int vals[3];
-    for (int ch = 0; ch < 3; ch++) {
-      if (style == 0) {
-        vals[ch] = lum(t, CYCLE/(ch*STRAND_LENGTH+px+1));
-      } else {
-        vals[ch] = lum(t, CYCLE/(3*px+ch+1));
+  for (int px = 0; px < STRIP_LENGTH; px++) {
+    int channels[NUM_CHANNELS];
+    for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+      // Determine the harmonic frequency for the pixel/channel.
+      int harmonic;
+      switch (interleave_mode) {
+      case channel:
+        harmonic = ch * STRIP_LENGTH + px + 1;
+        break;
+      case pixel:
+        harmonic = px * NUM_CHANNELS + ch + 1;
+        break;
       }
+      // Set the current luminosity for that harmonic.
+      channels[ch] = lum(t, CYCLE_LENGTH / harmonic);
     }
 
+    // Assign the luminosities to a pixel color according to the current channel permutation.
     strip.setPixelColor(px, 
-       vals[channel_map[phase][0]],
-       vals[channel_map[phase][1]],
-       vals[channel_map[phase][2]]
+       channels[channel_permutation[0]],
+       channels[channel_permutation[1]],
+       channels[channel_permutation[2]]
     );
   }
+  
   strip.show();
-  delay(10);
+  delay(FRAME_STEP);
 }
 
 
