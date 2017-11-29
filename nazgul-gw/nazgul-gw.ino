@@ -49,10 +49,10 @@
  */
 
 //#define RAINBOW
-#define SEAPUNK
+//#define SEAPUNK
 //#define INDIGO
 //#define BLUE_GREEN
-//#define HEART
+#define HEART
 
 #if defined (RAINBOW)
   #define HUE_START 0
@@ -89,7 +89,10 @@ CRGB leds[STRAND_LENGTH];
 void setup() {
   FastLED.addLeds<APA102, 5, 4, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
   FastLED.setBrightness( BRIGHTNESS );
+  pinMode(9,INPUT_PULLUP);
 }
+
+int offset = 0;
 
 void loop(){
   
@@ -128,7 +131,13 @@ void loop(){
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
-    leds[loc] = CHSV(hue, 255 * SATURATION, value);
+    if (digitalRead(9) == LOW)
+    {
+       offset++;
+    }
+    
+    leds[loc] = CHSV((hue + (offset >> 4) % 255), 255 * SATURATION, value);
+    
     #if defined (MIRRORED)
       leds[STRAND_LENGTH - 1 - loc] = CHSV(hue, 255 * SATURATION, value);
     #endif
