@@ -11,12 +11,12 @@
  * power at most 8 LEDs from the 500mA 5V pin on boards like the Trinket/Arduino
  * Nano. As the strand gets longer, you should use brightness to limit max current
  * draw. However, the typical pattern won't ever reach full white on all LEDs, so
- * the actual max current varies. It's probably best established via direct 
+ * the actual max current varies. It's probably best established via direct
  * measurement. An alternative reason to limit brightness is to improve battery
  * life.
  *
  * Current configs:
- * 
+ *
  *  * Arduino Nano, use pin 6
  *  * Adafruit Trinket 5V 16Mhz, use pin 0
  */
@@ -28,7 +28,7 @@
 #define BRIGHTNESS 127
 
 /**
- * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
+ * Whether the pattern is mirrored, or reversed. This is useful for scarfs where
  * the LEDs are all daisy chained. An alternative is to have the center pixel
  * being the first one, and split the d-out line down either sides
  */
@@ -40,9 +40,9 @@
 #else
   #define ARM_LENGTH STRAND_LENGTH
 #endif
-  
 
-/** 
+
+/**
  *  Pattern definition. The program cycles through a range on the wheel, and
  *  back again. This defines the boundaries. Note that wraparound for the full
  *  rainbow is not enabled. Would take special case code.
@@ -94,8 +94,17 @@ void setup() {
 
 int offset = 0;
 
+int buttonState;             // the current reading from the input pin
+int lastButtonState = LOW;   // the previous reading from the input pin
+
+// the following variables are unsigned longs because the time, measured in
+// milliseconds, will quickly become a bigger number than can be stored in an int.
+unsigned long lastDebounceTime = 0;  // the last time the output pin was toggled
+unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
+
+
 void loop(){
-  
+
   unsigned long t = millis();
   byte color = getClock(t, 2);
   byte pulse = inoise8(t / 4.) * .5;
@@ -104,19 +113,49 @@ void loop(){
   if (pulse > 255)
     pulse -= 255;
 
+
+  int reading = digitalRead(9);
+
+  // check to see if you just pressed the button
+  // (i.e. the input went from LOW to HIGH), and you've waited long enough
+  // since the last press to ignore any noise:
+
+  // If the switch changed, due to noise or pressing:
+  if (reading != lastButtonState) {
+    // reset the debouncing timer
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    // whatever the reading is at, it's been there for longer than the debounce
+    // delay, so take it as the actual current state:
+
+    // if the button state has changed:
+    if (reading != buttonState) {
+      buttonState = reading;
+
+      // only toggle the LED if the new button state is HIGH
+      if (buttonState == LOW) {
+        offset = (offset + 64) % 255;
+      }
+    }
+  }
+
+  lastButtonState = reading;
+
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
     byte dist = pix * 255 / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
-    byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));  
-    // linear ramp up of brightness, for those within 1/8th of the reference point   
+    byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));
+    // linear ramp up of brightness, for those within 1/8th of the reference point
     float value = max(255 - 6 * delta, 64);
 
     // hue selection. Mainly driving by c, but with some small shifting along
     // the length of the strand.
 
-    // sweep of a subset of the spectrum. 
+    // sweep of a subset of the spectrum.
     float left = HUE_START;
     float right = HUE_END;
     float x = color / 255. + pix * .5 / ARM_LENGTH;
@@ -125,27 +164,27 @@ void loop(){
     // sweeps the range. for x from 0 to 1, this function does this:
     // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
     float hue = 255 * (abs(2 * (right - left) * x  - right + left) + left);
-    
+
     byte loc = pix;
     #if defined (REVERSED)
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
-    if (digitalRead(9) == LOW)
-    {
-       offset++;
-    }
-    
-    leds[loc] = CHSV((hue + (offset >> 4) % 255), 255 * SATURATION, value);
-    
+    // if (digitalRead(9) == LOW)
+    // {
+    //    offset++;
+    // }
+
+    leds[loc] = CHSV((hue + offset % 255), 255 * SATURATION, value);
+
     #if defined (MIRRORED)
       leds[STRAND_LENGTH - 1 - loc] = CHSV(hue, 255 * SATURATION, value);
     #endif
   }
 
-  // delay 20ms to give max 50fps. Could do something fancier here to try to 
+  // delay 20ms to give max 50fps. Could do something fancier here to try to
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
-  // reading, but not sure if there would be a point to that. 
+  // reading, but not sure if there would be a point to that.
   FastLED.show(); // display this frame
   FastLED.delay(20);
 }
@@ -164,5 +203,5 @@ void loop(){
 // 1: 1/32hz
 byte getClock(unsigned long mil, byte rate)
 {
-  return mil >> (8 - rate) % 256; 
+  return mil >> (8 - rate) % 256;
 }
