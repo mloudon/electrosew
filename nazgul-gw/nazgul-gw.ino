@@ -1,4 +1,5 @@
 #include <FastLED.h>
+#include <Bounce2.h>
 
 #ifdef __AVR__
   #include <avr/power.h>
@@ -14,18 +15,15 @@
  * the actual max current varies. It's probably best established via direct
  * measurement. An alternative reason to limit brightness is to improve battery
  * life.
- *
- * Current configs:
- *
- *  * Arduino Nano, use pin 6
- *  * Adafruit Trinket 5V 16Mhz, use pin 0
  */
+ 
+#define DATA_PIN 5
+#define CLOCK_PIN 4
 
-#define PIN 6
-
+#define BUTTON_PIN 9
 
 #define STRAND_LENGTH 36
-#define BRIGHTNESS 127
+#define BRIGHTNESS 64
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where
@@ -48,48 +46,22 @@
  *  rainbow is not enabled. Would take special case code.
  */
 
-//#define RAINBOW
-//#define SEAPUNK
-//#define INDIGO
-//#define BLUE_GREEN
-#define HEART
 
-#if defined (RAINBOW)
-  #define HUE_START 0
-  #define HUE_END 1
-  #define SATURATION 1.
-#endif
-
-#if defined (SEAPUNK)
-  #define HUE_START .333
-  #define HUE_END .833
-  #define SATURATION .8
-#endif
-
-#if defined (INDIGO)
-  #define HUE_START .666
-  #define HUE_END .833
-  #define SATURATION 1.
-#endif
-
-#if defined (BLUE_GREEN)
-  #define HUE_START .333
-  #define HUE_END .666
-  #define SATURATION .9
-#endif
-
-#if defined (HEART)
-  #define HUE_START .833
-  #define HUE_END 1.
-  #define SATURATION 1.
-#endif
+#define HUE_START 0
+#define HUE_END .333
+#define SATURATION .75
 
 CRGB leds[STRAND_LENGTH];
 
+Bounce debouncer = Bounce();
+
 void setup() {
-  FastLED.addLeds<APA102, 5, 4, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
+  FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
   FastLED.setBrightness( BRIGHTNESS );
-  pinMode(9,INPUT_PULLUP);
+  pinMode(BUTTON_PIN,INPUT_PULLUP);
+
+  debouncer.attach(BUTTON_PIN);
+  debouncer.interval(100);
 }
 
 int offset = 0;
@@ -113,36 +85,13 @@ void loop(){
   if (pulse > 255)
     pulse -= 255;
 
-
-  int reading = digitalRead(9);
-
-  // check to see if you just pressed the button
-  // (i.e. the input went from LOW to HIGH), and you've waited long enough
-  // since the last press to ignore any noise:
-
-  // If the switch changed, due to noise or pressing:
-  if (reading != lastButtonState) {
-    // reset the debouncing timer
-    lastDebounceTime = millis();
-  }
-
-  if ((millis() - lastDebounceTime) > debounceDelay) {
-    // whatever the reading is at, it's been there for longer than the debounce
-    // delay, so take it as the actual current state:
-
-    // if the button state has changed:
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      // only toggle the LED if the new button state is HIGH
-      if (buttonState == LOW) {
-        offset = (offset + 64) % 255;
-      }
-    }
-  }
-
-  lastButtonState = reading;
-
+  debouncer.update();
+  //int value = debouncer.read();
+  
+  if ( debouncer.fell() ) {
+    offset = (offset + 32) % 255;
+  } 
+  
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
     byte dist = pix * 255 / ARM_LENGTH;
