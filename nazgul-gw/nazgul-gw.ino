@@ -1,4 +1,5 @@
 #include <FastLED.h>
+#include <Bounce2.h>
 
 #ifdef __AVR__
   #include <avr/power.h>
@@ -11,22 +12,19 @@
  * power at most 8 LEDs from the 500mA 5V pin on boards like the Trinket/Arduino
  * Nano. As the strand gets longer, you should use brightness to limit max current
  * draw. However, the typical pattern won't ever reach full white on all LEDs, so
- * the actual max current varies. It's probably best established via direct 
+ * the actual max current varies. It's probably best established via direct
  * measurement. An alternative reason to limit brightness is to improve battery
  * life.
- *
- * Current configs:
- * 
- *  * Arduino Nano, use pin 6
- *  * Adafruit Trinket 5V 16Mhz, use pin 0
  */
-
-#define PIN 6
+ 
+#define DATA_PIN 5
+#define CLOCK_PIN 4
+#define BUTTON_PIN 9
 
 #define STRAND_LENGTH 36
 
 /**
- * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
+ * Whether the pattern is mirrored, or reversed. This is useful for scarfs where
  * the LEDs are all daisy chained. An alternative is to have the center pixel
  * being the first one, and split the d-out line down either sides
  */
@@ -38,50 +36,16 @@
 #else
   #define ARM_LENGTH STRAND_LENGTH
 #endif
-  
-/** 
+
+/**
  *  Pattern definition. The program cycles through a range on the wheel, and
  *  back again. This defines the boundaries. Note that wraparound for the full
  *  rainbow is not enabled. Would take special case code.
  */
 
-//#define RAINBOW
-//#define SEAPUNK
-#define INDIGO
-//#define BLUE_GREEN
-//#define HEART
-
-#if defined (RAINBOW)
-  #define HUE_START 0
-  #define HUE_END 1
-  #define SATURATION 1.
-#endif
-
-#if defined (SEAPUNK)
-  #define HUE_START .333
-  #define HUE_END .833
-  #define SATURATION .8
-#endif
-
-#if defined (INDIGO)
-  #define HUE_START .666
-  #define HUE_END .833
-  #define SATURATION 1.
-#endif
-
-#if defined (BLUE_GREEN)
-  #define HUE_START .333
-  #define HUE_END .666
-  #define SATURATION .9
-#endif
-
-#if defined (HEART)
-  #define HUE_START .833
-  #define HUE_END 1.
-  #define SATURATION 1.
-#endif
-
 CRGB leds[STRAND_LENGTH];
+
+Bounce debouncer = Bounce();
 
 // return a cyclical (sine wave) value between min and max
 float cycle(float t, float period, float min, float max) {
@@ -105,14 +69,17 @@ int brightness_to_value(float brightness, float min_brightness) {
 }
 
 void setup() {
-  FastLED.addLeds<APA102, 5, 4, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
+  FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
   // don't set global brightness here to anything other than max -- do brightness scaling in software; gives a better appearance with less flicker
   FastLED.setBrightness( MAX_BRIGHTNESS );
-  pinMode(9,INPUT_PULLUP);
+  pinMode(BUTTON_PIN,INPUT_PULLUP);
+
+  debouncer.attach(BUTTON_PIN);
+  debouncer.interval(100);
 }
 
 int mode = 0;
-int num_modes = 3;
+int num_modes = 4;
 
 int BASE_HUE = 175;
 
@@ -162,42 +129,45 @@ void pattern_variable_pulses(float clock) {
 }
 
 void pattern_perlin_noise(long t) {
+  float HUE_SPREAD = .333;
+  float SATURATION = .75;
+  
   byte color = getClock(t, 2);
   byte pulse = inoise8(t / 4.) * .5;
   byte drift = getClock(t, 3);
   pulse += drift;
   if (pulse > 255)
     pulse -= 255;
-
+  
   for (byte pix = 0; pix < ARM_LENGTH; pix++){
     // location of the pixel on a 0-RENDER_RANGE scale.
     byte dist = pix * 255 / ARM_LENGTH;
 
     // messy, but some sort of least-of-3 distances, allowing wraping.
-    byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));  
-    // linear ramp up of brightness, for those within 1/8th of the reference point   
+    byte delta = min(min(abs(dist - pulse), abs(dist - pulse + 256)), abs(dist - pulse - 255));
+    // linear ramp up of brightness, for those within 1/8th of the reference point
     float value = max(255 - 6 * delta, 64);
 
     // hue selection. Mainly driving by c, but with some small shifting along
     // the length of the strand.
 
-    // sweep of a subset of the spectrum. 
-    float left = HUE_START;
-    float right = HUE_END;
+    // sweep of a subset of the spectrum.
+    float left = BASE_HUE / 256.;
+    float right = left + HUE_SPREAD;
     float x = color / 255. + pix * .5 / ARM_LENGTH;
     if (x >= 1)
       x -= 1.;
     // sweeps the range. for x from 0 to 1, this function does this:
     // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
     float hue = 255 * (abs(2 * (right - left) * x  - right + left) + left);
-    
+
     byte loc = pix;
     #if defined (REVERSED)
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
     leds[loc] = CHSV(hue, 255 * SATURATION, brightness_to_value(value / 255., 0.));
-    
+
     #if defined (MIRRORED)
       leds[STRAND_LENGTH - 1 - loc] = CHSV(hue, 255 * SATURATION, value);
     #endif
@@ -206,12 +176,16 @@ void pattern_perlin_noise(long t) {
 
 void loop(){
 
-  // needs debouncing
-  if (digitalRead(9) == LOW) {
-    mode = (mode + 13) % num_modes;
-    // other modes: change brightness; change base hue
+  debouncer.update();
+  //int value = debouncer.read();
+
+  //if (digitalRead(BUTTON_PIN) == LOW) {
+  //  BASE_HUE = (BASE_HUE + 1) % 256;
+  //}
+  
+  if ( debouncer.fell() ) {
+    mode = (mode + 1) % num_modes;
   }
-  mode = 2;
   
   unsigned long t = millis();
   float clock = t / 1000.;
@@ -228,7 +202,7 @@ void loop(){
   
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
-  // reading, but not sure if there would be a point to that. 
+  // reading, but not sure if there would be a point to that.
   FastLED.show(); // display this frame
   //FastLED.delay(20);  // delay seems to cause weird flickering
 }
@@ -247,5 +221,5 @@ void loop(){
 // 1: 1/32hz
 byte getClock(unsigned long mil, byte rate)
 {
-  return mil >> (8 - rate) % 256; 
+  return mil >> (8 - rate) % 256;
 }
