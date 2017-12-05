@@ -5,6 +5,18 @@
   #include <avr/power.h>
 #endif
 
+// description of UI controls
+// - in the default mode, party mode is activated whenever the button is pressed
+// - pressing 3 times within 1 second will switch to the next pattern (party mode is included in the rotation)
+// - pressing 4 times within 1 second will activate brightness adjust mode
+// - pressing 5 times within 1 second will activate color adjust mode
+// - in brightness or color adjust mode:
+//   - hold the button to cycle through the values. all other button actions are disabled
+//   - after 10 seconds without pressing the button, it will return to default mode
+//   - the first few LEDs will change to indicate the current mode:
+//     - for brightness mode, they will set to the max possible brightness for the pattern
+//     - for color mode, they will show a rainbow
+
 /**
  * This part is for hardware related config. It allows you to spec the board
  * you are using, along with the LED strand length/brightness. The brightness is
