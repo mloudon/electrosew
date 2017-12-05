@@ -23,10 +23,7 @@
 
 #define PIN 6
 
-
 #define STRAND_LENGTH 36
-//#define BRIGHTNESS 127
-#define BRIGHTNESS 255
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where 
@@ -42,7 +39,6 @@
   #define ARM_LENGTH STRAND_LENGTH
 #endif
   
-
 /** 
  *  Pattern definition. The program cycles through a range on the wheel, and
  *  back again. This defines the boundaries. Note that wraparound for the full
@@ -87,73 +83,85 @@
 
 CRGB leds[STRAND_LENGTH];
 
-const int MAX_BRIGHTNESS = 255;  // max 256; don't set too high or arduino gets stressed and can't be easily reflashed
-const bool USE_GAMMA_CORRECTION = true;  // more linear brightness in color ramp, but expensive. disable if framerate is too low on long strips
-const float GAMMA = 1.8;
-
+// return a cyclical (sine wave) value between min and max
 float cycle(float t, float period, float min, float max) {
   return .5*(min+max) - .5*(max-min) * cos(t / period * (2*PI));
 }
 
-int lum(float t, float period) {
-  float k = cycle(t, period, 0, 1);
-  return MAX_BRIGHTNESS * (USE_GAMMA_CORRECTION ? pow(k, GAMMA) : k);
+// blend linearly between a and b, fraction=0 returns a, fraction=1 returns b
+float blend(float a, float b, float fraction) {
+  return (1 - fraction) * a + fraction * b;
+}
+
+int MAX_BRIGHTNESS = 255;
+
+// convert an abstract brightness value to appropriate HSV brightness value (0-255)
+// brightness is a conceptual value between 0 (min) and 1 (max)
+// min_brightness, also valued [0, 1], is the actual luminance value that brightness 0 is mapped to (i.e., "black level")
+//   this is to always give some baseline glow, and to avoid unpleasant HSV dithering at very dark levels
+// the result value is scaled to MAX_BRIGHTNESS (note that turning down MAX_BRIGHTNESS also scales down the black level-- may want to revisit this)
+int brightness_to_value(float brightness, float min_brightness) {
+  return blend(min_brightness, 1., brightness) * MAX_BRIGHTNESS;
 }
 
 void setup() {
   FastLED.addLeds<APA102, 5, 4, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
-  FastLED.setBrightness( BRIGHTNESS );
+  // don't set global brightness here to anything other than max -- do brightness scaling in software; gives a better appearance with less flicker
+  FastLED.setBrightness( MAX_BRIGHTNESS );
   pinMode(9,INPUT_PULLUP);
 }
-
-int offset = 0;
 
 int mode = 0;
 int num_modes = 3;
 
-void loop(){
+int BASE_HUE = 175;
 
-    // needs debouncing
-    if (digitalRead(9) == LOW)
-    {
-      mode = (mode + 1) % num_modes;
-    }
-
+void pattern_rainbow_blast(float clock) {
+  float per_pixel_hue_jump = 10;
+  float crawl_speed_factor = 1000;
   
-  unsigned long t = millis();
-
-  if (mode == 0) {
-
-  // rainbow
   for (int i = 0; i < STRAND_LENGTH; i++) {
-    leds[i] = CHSV(10*i + 1*millis(), 255, 255);
+    leds[i] = CHSV(per_pixel_hue_jump*i + crawl_speed_factor*clock, 255, MAX_BRIGHTNESS);
   }
+}
 
-  } else if (mode == 1) {
-
-  // breathe
-  float bright = cycle(millis(), 12000, 0, 1);
-  bright = pow(bright, 25);
-  int v = (.07+.93*bright)*255;
+void pattern_breathe(float clock) {
+  float period = 20.; // s
+  int sub_breaths = 3;
+  float peakedness = 25;
+  float min_brightness = .15; //.07;
+  float sub_breath_intensity = .25; // even if sub_breaths == 1, this also helps slope the come-on of the 'main' breath, which due to the peaking factor spends most of the time at 0 intensity
+  
+  float main_breath = cycle(clock, period, 0, 1);
+  main_breath = pow(main_breath, peakedness);
+  float sub_breath = cycle(clock, period/sub_breaths, 0, 1);
+  float brightness = blend(main_breath, sub_breath, sub_breath_intensity);
+  int value = brightness_to_value(brightness, min_brightness);
   for (int i = 0; i < STRAND_LENGTH; i++) {
-    leds[i] = CHSV(175, 255, v);
-  }
+    leds[i] = CHSV(BASE_HUE, 255, value);
+  }  
+}
 
-  } else if (mode == 2) {
+void pattern_variable_pulses(float clock) {
+  float period = 30; // s
+  float peakedness = 3;
+  float min_pulse_width = 5.;
+  float max_pulse_width = STRAND_LENGTH * 2.5;
+  float crawl_speed_factor = 1;  // around 1 is the sweet spot; changing this too much seems to look much worse
+  float min_brightness = .05;
 
-  // variable pulse
-  float len = 1. / cycle(millis(), 20000, 1./(STRAND_LENGTH * 2.5), 1/5.);
-  float offset = millis() / 1000.;
+  // cycle in the inverse space to balance short vs. long pulses better
+  float pulse_width = 1. / cycle(clock, period, 1./min_pulse_width, 1./max_pulse_width);
+  float crawl_offset = crawl_speed_factor * clock;
   for (int i = 0; i < STRAND_LENGTH; i++) {
-    float bright = cycle(i + offset*len, len, 0, 1);
-    bright = pow(bright, 3);
-    int v = (.05+.95*bright)*255;
-    leds[i] = CHSV(170, 255, v);
-  }
+    float brightness = cycle(i + crawl_offset*pulse_width, pulse_width, 0, 1);
+    brightness = pow(brightness, peakedness);
+    int value = brightness_to_value(brightness, min_brightness);
+    leds[i] = CHSV(BASE_HUE, 255, value);
+  }  
+}
 
-  }
-
-  /* perlin
+void pattern_perlin_noise(long t) {
   byte color = getClock(t, 2);
   byte pulse = inoise8(t / 4.) * .5;
   byte drift = getClock(t, 3);
@@ -188,24 +196,41 @@ void loop(){
       loc = ARM_LENGTH - 1 - pix;
     #endif
 
-    if (digitalRead(9) == LOW)
-    {
-       offset++;
-    }
-    
-    leds[loc] = CHSV((hue + (offset >> 4) % 255), 255 * SATURATION, value);
+    leds[loc] = CHSV(hue, 255 * SATURATION, brightness_to_value(value / 255., 0.));
     
     #if defined (MIRRORED)
       leds[STRAND_LENGTH - 1 - loc] = CHSV(hue, 255 * SATURATION, value);
     #endif
-  }
-  */
+  }  
+}
 
+void loop(){
+
+  // needs debouncing
+  if (digitalRead(9) == LOW) {
+    mode = (mode + 13) % num_modes;
+    // other modes: change brightness; change base hue
+  }
+  mode = 2;
+  
+  unsigned long t = millis();
+  float clock = t / 1000.;
+
+  if (mode == 0) {
+    pattern_rainbow_blast(clock);
+  } else if (mode == 1) {
+    pattern_breathe(clock);
+  } else if (mode == 2) {
+    pattern_variable_pulses(clock);
+  } else if (mode == 3) {
+    pattern_perlin_noise(t);
+  }
+  
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
   // reading, but not sure if there would be a point to that. 
   FastLED.show(); // display this frame
-  //FastLED.delay(20);
+  //FastLED.delay(20);  // delay seems to cause weird flickering
 }
 
 
