@@ -22,6 +22,7 @@
 #define BUTTON_PIN 9
 
 #define STRAND_LENGTH 36
+// TODO 60px/m strips
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where
@@ -37,12 +38,6 @@
   #define ARM_LENGTH STRAND_LENGTH
 #endif
 
-/**
- *  Pattern definition. The program cycles through a range on the wheel, and
- *  back again. This defines the boundaries. Note that wraparound for the full
- *  rainbow is not enabled. Would take special case code.
- */
-
 CRGB leds[STRAND_LENGTH];
 
 Bounce debouncer = Bounce();
@@ -57,7 +52,12 @@ float blend(float a, float b, float fraction) {
   return (1 - fraction) * a + fraction * b;
 }
 
-int MAX_BRIGHTNESS = 255;
+// max allowed brightness within a pattern. adjustable
+int MAX_BRIGHTNESS = 128;
+// max value that max brightness can be adjusted to
+int BRIGHTNESS_ADJUST_MAX = 255;
+// min value that max brightness can be adjusted to
+int BRIGHTNESS_ADJUST_MIN = 16;
 
 // convert an abstract brightness value to appropriate HSV brightness value (0-255)
 // brightness is a conceptual value between 0 (min) and 1 (max)
@@ -68,6 +68,28 @@ int brightness_to_value(float brightness, float min_brightness) {
   return blend(min_brightness, 1., brightness) * MAX_BRIGHTNESS;
 }
 
+// admin bookkeeping shit
+// how much of the most recent button presses to track
+const int button_press_buffer_size = 5;
+// timestamps of most recent N presses, as a cyclical buffer
+long button_press_buffer[button_press_buffer_size];
+// index to implement above cyclical buffer
+int button_press_buffer_ix = 0;
+// last timestamp in which button was depressed (note: NOT a discrete unpressed->pressed event)
+long last_pressed = 0;
+// window in which to count button presses to do special things
+const float button_multipress_timeout = 1.2; // s
+// timestamp in which we started counting button presses - set to first press outside an active window
+long button_multipress_window_start = 0;
+// timeout before we revert out of admin mode
+const float admin_mode_timeout = 10; // s
+// 'tick' for updates to hue/brightness - this rate limits how quickly we cycle through
+int admin_mode_tick = 15; // ms
+// timestamp of last discrete update to hue/brightness
+long last_admin_adjust = 0;
+// whether brightness is being adjusted in the up or down direction
+bool brightness_adjust_dir_up = false;
+
 void setup() {
   FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
   // don't set global brightness here to anything other than max -- do brightness scaling in software; gives a better appearance with less flicker
@@ -75,11 +97,19 @@ void setup() {
   pinMode(BUTTON_PIN,INPUT_PULLUP);
 
   debouncer.attach(BUTTON_PIN);
-  debouncer.interval(100);
+  debouncer.interval(20);
+
+  for (int i = 0; i < button_press_buffer_size; i++) {
+    button_press_buffer[i] = 0;
+  }
 }
 
-int mode = 0;
+// currently displayed pattern
+int mode = 1;
 int num_modes = 4;
+
+// meta-mode, 0 for default, >0 for adjusting some parameter
+int admin_mode = 0;
 
 int BASE_HUE = 175;
 
@@ -152,14 +182,15 @@ void pattern_perlin_noise(long t) {
     // the length of the strand.
 
     // sweep of a subset of the spectrum.
-    float left = BASE_HUE / 256.;
+    float left = BASE_HUE / 256. - HUE_SPREAD / 2;
     float right = left + HUE_SPREAD;
     float x = color / 255. + pix * .5 / ARM_LENGTH;
     if (x >= 1)
       x -= 1.;
     // sweeps the range. for x from 0 to 1, this function does this:
     // starts at (0, _right_), goes to (.5, _left_), then back to (1, _right)
-    float hue = 255 * (abs(2 * (right - left) * x  - right + left) + left);
+    int hue = 255 * (abs(2 * (right - left) * x  - right + left) + left);
+    hue = hue % 256;
 
     byte loc = pix;
     #if defined (REVERSED)
@@ -175,29 +206,93 @@ void pattern_perlin_noise(long t) {
 }
 
 void loop(){
-
-  debouncer.update();
-  //int value = debouncer.read();
-
-  //if (digitalRead(BUTTON_PIN) == LOW) {
-  //  BASE_HUE = (BASE_HUE + 1) % 256;
-  //}
-  
-  if ( debouncer.fell() ) {
-    mode = (mode + 1) % num_modes;
-  }
-  
   unsigned long t = millis();
   float clock = t / 1000.;
 
-  if (mode == 0) {
+  int display_mode = mode;
+
+  debouncer.update();
+  if (debouncer.fell()) {
+    // capture the times of the N most recent button presses
+    button_press_buffer[button_press_buffer_ix] = t;
+    button_press_buffer_ix = (button_press_buffer_ix + 1) % button_press_buffer_size;
+    if (button_multipress_window_start == 0) {
+      button_multipress_window_start = t;    
+    }
+  }
+  if (button_multipress_window_start > 0 && button_multipress_window_start + button_multipress_timeout * 1000 < t) {
+    // count the number of presses within the recently completed window to see if we should trigger something special (only if in default mode)
+    int num_presses = 0;
+    for (int i = 0; i < button_press_buffer_size; i++) {
+      long delta = button_press_buffer[i] - button_multipress_window_start;
+      if (delta >= 0 && delta < button_multipress_timeout * 1000) {
+        num_presses++;
+      }
+    }
+    button_multipress_window_start = 0;
+
+    if (admin_mode == 0) {
+      if (num_presses == 3) {
+        // change pattern, stay in default mode
+        mode = (mode + 1) % num_modes;
+      } else if (num_presses == 4) {
+        // brightness change mode
+        admin_mode = 1;
+      } else if (num_presses == 5) {
+        // hue change mode
+        admin_mode = 2;
+      }
+    }
+  }
+  // if button pressed...
+  if (debouncer.read() == LOW) {
+    last_pressed = t;
+    // prevent cycling the parameter too fast
+    bool admin_lockout = t - last_admin_adjust < admin_mode_tick;
+
+    if (admin_mode == 0) {
+      // in default mode, engage party mode
+      display_mode = 0;
+    }
+    if (!admin_lockout) {
+      if (admin_mode == 1) {
+        MAX_BRIGHTNESS += (brightness_adjust_dir_up ? 1 : -1);
+        if (MAX_BRIGHTNESS <= BRIGHTNESS_ADJUST_MIN || MAX_BRIGHTNESS >= BRIGHTNESS_ADJUST_MAX) {
+          MAX_BRIGHTNESS = max(min(MAX_BRIGHTNESS, BRIGHTNESS_ADJUST_MAX), BRIGHTNESS_ADJUST_MIN);
+          brightness_adjust_dir_up = !brightness_adjust_dir_up;
+        }
+      } else if (admin_mode == 2) {
+        BASE_HUE = (BASE_HUE + 1) % 256;
+      }
+      last_admin_adjust = t;
+    }
+  }
+  // in an admin mode, button presses only change the relevant variable, so use an inactivity timeout to return to default mode
+  if (admin_mode > 0 && t - last_pressed > admin_mode_timeout * 1000) {
+    admin_mode = 0;
+  }
+
+  // render current pattern
+  if (display_mode == 0) {
     pattern_rainbow_blast(clock);
-  } else if (mode == 1) {
-    pattern_breathe(clock);
-  } else if (mode == 2) {
+  } else if (display_mode == 1) {
     pattern_variable_pulses(clock);
-  } else if (mode == 3) {
+  } else if (display_mode == 2) {
+    pattern_breathe(clock);
+  } else if (display_mode == 3) {
     pattern_perlin_noise(t);
+  }
+
+  // for special admin modes, overwrite the first few leds to indicate the mode
+  int admin_indicator_size = 5;
+  if (admin_mode == 1) {
+    for (int i = 0; i < admin_indicator_size; i++) {
+      leds[i] = CHSV(BASE_HUE, 255, MAX_BRIGHTNESS);
+    }    
+  } else if (admin_mode == 2) {
+    for (int i = 0; i < admin_indicator_size; i++) {
+      leds[i] = CHSV(256. * i / admin_indicator_size, 255, MAX_BRIGHTNESS);
+    }
   }
   
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
