@@ -105,7 +105,7 @@ bool brightness_adjust_dir_up = false;
 void setup() {
   FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
   // don't set global brightness here to anything other than max -- do brightness scaling in software; gives a better appearance with less flicker
-  FastLED.setBrightness( MAX_BRIGHTNESS );
+  FastLED.setBrightness( 255 );
   pinMode(BUTTON_PIN,INPUT_PULLUP);
 
   debouncer.attach(BUTTON_PIN);
@@ -315,6 +315,15 @@ void loop(){
       leds[i] = CHSV(256. * i / admin_indicator_size, 255, MAX_BRIGHTNESS);
     }
   }
+
+  /* low cutoff testing 
+  for (int i = 0; i < STRAND_LENGTH; i++) {
+    leds[i] = CHSV(0, 0, 0);
+    if (i < 10) {
+      leds[i] = CHSV(0, 0, 255);
+    }
+  }
+  */
   
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
