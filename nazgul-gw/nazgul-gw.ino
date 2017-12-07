@@ -7,9 +7,10 @@
 
 // description of UI controls
 // - in the default mode, party mode is activated whenever the button is pressed
-// - pressing 3 times within 1 second will switch to the next pattern (party mode is included in the rotation)
-// - pressing 4 times within 1 second will activate brightness adjust mode
-// - pressing 5 times within 1 second will activate color adjust mode
+// - pressing 3 times within 1.5 seconds will switch to the next pattern (party mode is included in the rotation)
+// - pressing 4 times within 1.5 seconds will activate brightness adjust mode
+// - pressing 5 times within 1.5 seconds will activate color adjust mode
+// - pressing 7 times within 1.5 seconds will toggle various strobing modes to keep crappy battery packs alive
 // - in brightness or color adjust mode:
 //   - hold the button to cycle through the values. all other button actions are disabled
 //   - after 10 seconds without pressing the button, it will return to default mode
@@ -82,7 +83,7 @@ int brightness_to_value(float brightness, float min_brightness) {
 
 // admin bookkeeping shit
 // how much of the most recent button presses to track
-const int button_press_buffer_size = 5;
+const int button_press_buffer_size = 7;
 // timestamps of most recent N presses, as a cyclical buffer
 long button_press_buffer[button_press_buffer_size];
 // index to implement above cyclical buffer
@@ -90,7 +91,7 @@ int button_press_buffer_ix = 0;
 // last timestamp in which button was depressed (note: NOT a discrete unpressed->pressed event)
 long last_pressed = 0;
 // window in which to count button presses to do special things
-const float button_multipress_timeout = 1.2; // s
+const float button_multipress_timeout = 1.5; // s
 // timestamp in which we started counting button presses - set to first press outside an active window
 long button_multipress_window_start = 0;
 // timeout before we revert out of admin mode
@@ -101,6 +102,10 @@ int admin_mode_tick = 15; // ms
 long last_admin_adjust = 0;
 // whether brightness is being adjusted in the up or down direction
 bool brightness_adjust_dir_up = false;
+
+int keepalive_mode = 0;
+int num_keepalive_modes = 7;
+long last_strobe = 0;
 
 void setup() {
   FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
@@ -260,6 +265,9 @@ void loop(){
       } else if (num_presses == 5) {
         // hue change mode
         admin_mode = 2;
+      } else if (num_presses == 7) {
+        // change keepalive mode
+        keepalive_mode = (keepalive_mode + 1) % num_keepalive_modes;
       }
     }
   }
@@ -316,14 +324,46 @@ void loop(){
     }
   }
 
-  /* low cutoff testing 
-  for (int i = 0; i < STRAND_LENGTH; i++) {
-    leds[i] = CHSV(0, 0, 0);
-    if (i < 10) {
-      leds[i] = CHSV(0, 0, 255);
+  // thwart low current cutoff
+  int keepalive_strobe_delay = 0;
+  int keepalive_strobe_duration = 60;
+  int num_keepalive_pixels = 2;
+  if (keepalive_mode == 0) {
+    // off
+    num_keepalive_pixels = 0;
+  } else if (keepalive_mode == 1) {
+    // 2px @ 5s
+    keepalive_strobe_delay = 5000;
+  } else if (keepalive_mode == 2) {
+    // 3px @ 5s
+    keepalive_strobe_delay = 5000;
+    num_keepalive_pixels = 3;
+  } else if (keepalive_mode == 3) {
+    // 2px @ 1s
+    keepalive_strobe_delay = 1000;
+  } else if (keepalive_mode == 4) {
+    // 3px @ 1s
+    keepalive_strobe_delay = 1000;
+    num_keepalive_pixels = 3;
+  } else if (keepalive_mode == 5) {
+    // 2px continuous
+  } else if (keepalive_mode == 6) {
+    // 3px continuous
+    num_keepalive_pixels = 3;
+  }
+
+  bool keepalive = false;
+  if (t - last_strobe > keepalive_strobe_delay) {
+    keepalive = true;
+    last_strobe = t;
+  } else if (t - last_strobe < keepalive_strobe_duration) {
+    keepalive = true;
+  }
+  if (keepalive) {
+    for (int i = 0; i < num_keepalive_pixels; i++) {
+      leds[STRAND_LENGTH - 1 - i] = CHSV(0, 0, 255);
     }
   }
-  */
   
   // delay 20ms to give max 50fps. Could do something fancier here to try to 
   // hit exactly 60fps (or whatever) if possible, but takinng another millis()
