@@ -118,12 +118,19 @@ void setup() {
 
 // currently displayed pattern
 int mode = 1;
-int num_modes = 4;
+int num_modes = 5;
 
 // meta-mode, 0 for default, >0 for adjusting some parameter
 int admin_mode = 0;
 
 int BASE_HUE = 175;
+
+void pattern_static() {
+  float rel_brightness = .5;
+  for (int i = 0; i < STRAND_LENGTH; i++) {
+    leds[i] = CHSV(BASE_HUE, 255, brightness_to_value(rel_brightness, 0));
+  }  
+}
 
 void pattern_rainbow_blast(float clock) {
   float per_pixel_hue_jump = 10;
@@ -293,6 +300,8 @@ void loop(){
     pattern_breathe(clock);
   } else if (display_mode == 3) {
     pattern_perlin_noise(t);
+  } else if (display_mode == 4) {
+    pattern_static();
   }
 
   // for special admin modes, overwrite the first few leds to indicate the mode
