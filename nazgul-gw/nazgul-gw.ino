@@ -34,8 +34,16 @@
 #define CLOCK_PIN 4
 #define BUTTON_PIN 9
 
+// A configuration - trinket, apa
 #define STRAND_LENGTH 36
-// TODO 60px/m strips
+
+// B configuration - nano, apa
+//#define STRAND_LENGTH 30
+
+// C configuration - nano, ws2811
+//#define STRAND_LENGTH 60
+//#define DATA_PIN 6
+//#define LED_WS2811
 
 /**
  * Whether the pattern is mirrored, or reversed. This is useful for scarfs where
@@ -108,7 +116,12 @@ int num_keepalive_modes = 7;
 long last_strobe = 0;
 
 void setup() {
+  #if defined (LED_WS2811)
+  FastLED.addLeds<WS2811, DATA_PIN, GRB>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
+  #else
   FastLED.addLeds<APA102, DATA_PIN, CLOCK_PIN, BGR>(leds, STRAND_LENGTH).setCorrection( TypicalLEDStrip );
+  #endif
+ 
   // don't set global brightness here to anything other than max -- do brightness scaling in software; gives a better appearance with less flicker
   FastLED.setBrightness( 255 );
   pinMode(BUTTON_PIN,INPUT_PULLUP);
