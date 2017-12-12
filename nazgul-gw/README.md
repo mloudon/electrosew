@@ -7,3 +7,8 @@ Assume Trinket Pro 5v
 - Button between 9 and GND
 
 APA102LED strip
+
+Requires:
+
+- FastLED - https://github.com/FastLED/FastLED
+- Bounce2 - https://github.com/thomasfredericks/Bounce2
