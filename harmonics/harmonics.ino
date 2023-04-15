@@ -1,4 +1,4 @@
-#include <Adafruit_NeoPixel.h>
+#include "Adafruit_WS2801.h"
 #ifdef __AVR__
 #include <avr/power.h>
 #endif
@@ -15,12 +15,13 @@
  * pixels/channels (12 such total variations).
  */
 
-#define DATA_PIN 6
+uint8_t dataPin  = 0;    // Yellow wire on Adafruit Pixels
+uint8_t clockPin = 2;    // Green wire on Adafruit Pixels
 #define FRAME_STEP 10  // ms
 
 // Number of pixels. Total number of harmonics is 3 (R/G/B) * #pixels. A cycle completes when all harmonics go back in sync.
 // Note: the integer nature of the harmonics is critical to the effect.
-const int STRIP_LENGTH = 60;
+const int STRIP_LENGTH = 25;
 
 // Duration of cycle for a strip of 'baseline' pixels. Actual cycle length is changed accordingly with
 // actual number of pixels in strip.
@@ -50,7 +51,7 @@ interleaving interleave_modes[num_enabled_interleave_modes] = {channel, pixel};
 const float CYCLE_LENGTH = BASELINE_CYCLE_LENGTH * STRIP_LENGTH / BASELINE_STRIP_LENGTH;
 /////////////
 
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(STRIP_LENGTH, DATA_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_WS2801 strip = Adafruit_WS2801(25, dataPin, clockPin);
 
 void setup() {
   strip.begin();
